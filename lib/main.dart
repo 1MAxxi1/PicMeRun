@@ -6,7 +6,14 @@ import 'package:picmerun/screens/camera_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await FaceService().loadModel();
-  final cameras = await availableCameras();
+
+  List<CameraDescription> cameras = [];
+  try {
+    cameras = await availableCameras();
+  } catch (e) {
+    debugPrint("⚠️ No se detectaron cámaras: $e");
+  }
+
   runApp(PicMeRunApp(cameras: cameras));
 }
 
@@ -23,7 +30,7 @@ class PicMeRunApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF2563EB),
-          background: const Color(0xFFF8FAFC),
+          surface: const Color(0xFFF8FAFC),
         ),
         useMaterial3: true,
 
@@ -39,7 +46,7 @@ class PicMeRunApp extends StatelessWidget {
           ),
         ),
 
-        // ✅ CORRECCIÓN: Agregamos "const" y los decimales ".0" para quitar la línea roja
+        // ✅ CORRECCIÓN: Usamos CardThemeData en lugar de CardTheme
         cardTheme: const CardThemeData(
           color: Colors.white,
           elevation: 2.0,

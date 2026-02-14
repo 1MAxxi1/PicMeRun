@@ -12,7 +12,7 @@ import 'package:picmerun/services/local_db_service.dart';
 import 'package:picmerun/screens/queue_screen.dart';
 import 'package:picmerun/services/face_service.dart';
 import 'package:picmerun/config/app_config.dart';
-import '../services/torso_service.dart'; // Asegúrate de que la ruta sea correcta
+import '../services/torso_service.dart';
 
 class CameraScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -28,7 +28,7 @@ class _CameraScreenState extends State<CameraScreen> {
   final ImagePicker _picker = ImagePicker();
 
   bool _isProcessing = false;
-  bool _isChangingCamera = false;
+  bool _isChangingCamera = false; // ✅ Control maestro de UI
   int _selectedCameraIndex = 0;
 
   late FaceDetector _faceDetector;
@@ -55,40 +55,62 @@ class _CameraScreenState extends State<CameraScreen> {
   void _initCamera(int cameraIndex) {
     _controller = CameraController(
       widget.cameras[cameraIndex],
-      AppConfig.useHighResPreview ? ResolutionPreset.high : ResolutionPreset.medium,
+      ResolutionPreset.medium, // ✅ Ideal para el buffer del Moto E14
       enableAudio: false,
     );
     _initializeControllerFuture = _controller.initialize();
   }
 
+  // ✅ Mejora: Eliminamos el error CameraException al importar de galería
   Future<void> _pickFromGallery() async {
+    if (_isProcessing || _isChangingCamera) return;
+
     try {
+      setState(() => _isChangingCamera = true); // ✅ Ocultamos preview para evitar error visual
+
+      if (_controller.value.isInitialized) {
+        await _controller.dispose();
+      }
+
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
         imageQuality: AppConfig.imageQuality,
       );
 
       if (image != null) {
-        _showSnackBar('🖼️ Procesando foto de la maratón...', Colors.blue);
-        _startBackgroundProcessing(image);
+        _showSnackBar('🖼️ Procesando foto...', Colors.blue);
+        await _startBackgroundProcessing(image);
       }
     } catch (e) {
       _showSnackBar('⚠️ Error al abrir galería', Colors.red);
+      debugPrint("Error Galería: $e");
+    } finally {
+      // ✅ Reiniciamos la cámara suavemente al volver
+      _initCamera(_selectedCameraIndex);
+      await _initializeControllerFuture;
+      if (mounted) {
+        setState(() => _isChangingCamera = false);
+      }
     }
   }
 
   Future<void> _toggleCamera() async {
-    if (widget.cameras.length < 2) return;
+    if (widget.cameras.length < 2 || _isChangingCamera) return;
+
     setState(() => _isChangingCamera = true);
-    await _controller.dispose();
-    _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.cameras.length;
-    _initCamera(_selectedCameraIndex);
+
     try {
+      await _controller.dispose();
+      _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.cameras.length;
+      _initCamera(_selectedCameraIndex);
       await _initializeControllerFuture;
     } catch (e) {
       debugPrint("Error al girar cámara: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isChangingCamera = false);
+      }
     }
-    if (mounted) setState(() => _isChangingCamera = false);
   }
 
   @override
@@ -100,28 +122,34 @@ class _CameraScreenState extends State<CameraScreen> {
 
   Future<void> _takePicture() async {
     if (_isProcessing || _isChangingCamera) return;
+
     try {
       await _initializeControllerFuture;
+      await _controller.pausePreview(); // ✅ Evita el error BLASTBufferQueue
+
       final XFile image = await _controller.takePicture();
-      _startBackgroundProcessing(image);
+      await _startBackgroundProcessing(image);
+
     } catch (e) {
-      _showSnackBar('⚠️ Error al capturar', Colors.red);
+      _showSnackBar('⚠️ Error: $e', Colors.red);
+    } finally {
+      if (mounted) {
+        await _controller.resumePreview();
+      }
     }
   }
 
   Future<void> _startBackgroundProcessing(XFile image) async {
-    if (_isProcessing) return;
     setState(() => _isProcessing = true);
 
     try {
-      final File file = File(image.path);
+      final String currentPath = image.path;
+      final File file = File(currentPath);
       final InputImage inputImage = InputImage.fromFile(file);
       final List<Face> faces = await _faceDetector.processImage(inputImage);
 
-      // Filtro de calidad frontal
       final validFaces = faces.where((face) {
-        final bool isFrontal = (face.headEulerAngleY ?? 0).abs() < 35;
-        return isFrontal;
+        return (face.headEulerAngleY ?? 0).abs() < 35;
       }).toList();
 
       if (validFaces.isEmpty) {
@@ -130,30 +158,32 @@ class _CameraScreenState extends State<CameraScreen> {
         return;
       }
 
-      // 1. Procesar Torso (Llamada Estática Corregida)
-      final String? torsoPath = await TorsoService.processTorso(image.path);
+      // 1. Procesamiento de Torso (Lógica de Gregorio)
+      final String? torsoPath = await TorsoService.processTorso(currentPath);
 
       final Directory appDir = (await getExternalStorageDirectory())!;
       final String picMeRunPath = '${appDir.path}/PicMeRun';
-      if (!Directory(picMeRunPath).existsSync()) Directory(picMeRunPath).createSync(recursive: true);
+      if (!Directory(picMeRunPath).existsSync()) {
+        Directory(picMeRunPath).createSync(recursive: true);
+      }
 
-      // 2. Pipeline de imagen (Hash SHA-256 para evitar duplicados en Cloudflare)
+      // 2. Hash SHA-256 para evitar duplicados
       final result = await compute(_isolateImagePipeline, {
-        'imagePath': image.path,
+        'imagePath': currentPath,
         'appDir': picMeRunPath,
       });
 
       if (result != null) {
-        // 3. Inserción en tabla Photos (Arquitectura 7 tablas)
+        // 3. Inserción con IDs de Seed (v5)
         final int photoId = await LocalDBService.instance.insertPhoto({
           'hash_photo': result['hash'],
-          'event_id': 1, // Evento de prueba
-          'photographer_id': 1, // Fotógrafo de prueba
+          'event_id': 1,
+          'photographer_id': 1,
           'file_url': result['path'],
           'taken_at': DateTime.now().toIso8601String(),
         });
 
-        // 4. Guardar en la cola de procesamiento si el torso fue exitoso
+        // 4. Registro en cola de envío
         if (torsoPath != null) {
           await LocalDBService.instance.insertTorsoQueue({
             'photo_id': photoId,
@@ -183,21 +213,35 @@ class _CameraScreenState extends State<CameraScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text("PicMeRun"),
+        title: RichText(
+          text: const TextSpan(
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            children: [
+              TextSpan(text: 'Pic', style: TextStyle(color: Colors.black)),
+              TextSpan(text: 'Me', style: TextStyle(color: Colors.red)),
+              TextSpan(text: 'Run', style: TextStyle(color: Colors.black)),
+            ],
+          ),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.cloud_upload_outlined),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const QueueScreen())),
+            icon: const Icon(Icons.cloud_upload_outlined, color: Colors.black),
+            onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const QueueScreen())
+            ),
           ),
         ],
       ),
       body: Column(
         children: [
           Expanded(
-            child: FutureBuilder<void>(
+            child: _isChangingCamera
+                ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                : FutureBuilder<void>(
               future: _initializeControllerFuture,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.done) {
+                if (snapshot.connectionState == ConnectionState.done && _controller.value.isInitialized) {
                   return CameraPreview(_controller);
                 }
                 return const Center(child: CircularProgressIndicator());
@@ -210,9 +254,21 @@ class _CameraScreenState extends State<CameraScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                IconButton(icon: const Icon(Icons.photo_library, color: Colors.white), onPressed: _pickFromGallery),
-                FloatingActionButton(onPressed: _takePicture, backgroundColor: Colors.white, child: const Icon(Icons.camera_alt, color: Colors.black)),
-                IconButton(icon: const Icon(Icons.flip_camera_android, color: Colors.white), onPressed: _toggleCamera),
+                IconButton(
+                    icon: const Icon(Icons.photo_library, color: Colors.white),
+                    onPressed: _isProcessing || _isChangingCamera ? null : _pickFromGallery
+                ),
+                FloatingActionButton(
+                    onPressed: _isProcessing || _isChangingCamera ? null : _takePicture,
+                    backgroundColor: Colors.white,
+                    child: _isProcessing
+                        ? const CircularProgressIndicator(color: Colors.black)
+                        : const Icon(Icons.camera_alt, color: Colors.black)
+                ),
+                IconButton(
+                    icon: const Icon(Icons.flip_camera_android, color: Colors.white),
+                    onPressed: _isProcessing || _isChangingCamera ? null : _toggleCamera
+                ),
               ],
             ),
           ),
@@ -226,13 +282,9 @@ Future<Map<String, dynamic>?> _isolateImagePipeline(Map<String, dynamic> data) a
   try {
     final File file = File(data['imagePath']);
     final Uint8List bytes = await file.readAsBytes();
-
-    // Generar Hash real para la tabla photos
     final String hash = sha256.convert(bytes).toString();
     final String path = '${data['appDir']}/IMG_$hash.jpg';
-
     await File(path).writeAsBytes(bytes);
-
     return {'path': path, 'hash': hash};
   } catch (e) {
     return null;

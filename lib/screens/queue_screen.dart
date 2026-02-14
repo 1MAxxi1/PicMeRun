@@ -12,7 +12,6 @@ class QueueScreen extends StatefulWidget {
 }
 
 class _QueueScreenState extends State<QueueScreen> {
-  // ✅ Usamos una lista inmutable para evitar persistencia de datos antiguos en caché
   List<Map<String, dynamic>> _pendingTorsos = [];
   bool _isSyncing = false;
 
@@ -22,12 +21,10 @@ class _QueueScreenState extends State<QueueScreen> {
     _loadQueue();
   }
 
-  // ✅ Carga estricta: Solo lo que la DB diga que está 'pending'
   Future<void> _loadQueue() async {
     final data = await LocalDBService.instance.getPendingTorsos();
     if (mounted) {
       setState(() {
-        // Creamos una copia nueva de la lista para forzar el refresco de UI
         _pendingTorsos = List<Map<String, dynamic>>.from(data);
       });
     }
@@ -65,19 +62,12 @@ class _QueueScreenState extends State<QueueScreen> {
     );
   }
 
-  // ✅ Mejora en Sincronización: Limpieza post-envío
   Future<void> _handleSync() async {
     if (_pendingTorsos.isEmpty) return;
-
     setState(() => _isSyncing = true);
-
     try {
-      // 1. Ejecutar subida (El SyncService marcará como 'done' en DB)
       await SyncService().uploadPendingTorsos();
-
-      // 2. RECARGA OBLIGATORIA: Traer la verdad absoluta de la DB
       await _loadQueue();
-
       _showSnackBar("✅ Sincronización finalizada", Colors.green);
     } catch (e) {
       _showSnackBar("⚠️ Error sincronizando: $e", Colors.red);
@@ -89,57 +79,123 @@ class _QueueScreenState extends State<QueueScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: const Color(0xFFF1F5F9), // Gris azulado suave profesional
       appBar: AppBar(
         title: const Text("Cola de Envío", style: TextStyle(fontWeight: FontWeight.bold)),
+        elevation: 0,
         actions: [
           if (!_isSyncing && _pendingTorsos.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.cloud_upload, size: 28),
-              onPressed: _handleSync,
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: IconButton(
+                icon: const Icon(Icons.cloud_upload_rounded, size: 28, color: Color(0xFF2563EB)),
+                onPressed: _handleSync,
+              ),
             ),
-          const SizedBox(width: 8),
         ],
       ),
       body: _isSyncing
-          ? const Center(child: CircularProgressIndicator(color: Colors.red))
+          ? _buildSyncingState()
           : _pendingTorsos.isEmpty
           ? _buildEmptyState()
           : ListView.builder(
-        // ✅ El ValueKey con el Hash de la lista previene que los items borrados vuelvan a aparecer por error de renderizado
         key: ValueKey(_pendingTorsos.hashCode),
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(vertical: 16),
         itemCount: _pendingTorsos.length,
         itemBuilder: (context, index) {
           final item = _pendingTorsos[index];
           final int photoId = item['photo_id'];
 
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(12),
-              leading: GestureDetector(
-                onTap: () => _showImagePreview(item['torso_image_url']),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.file(
-                    File(item['torso_image_url']),
-                    width: 60, height: 60, fit: BoxFit.cover,
-                  ),
+          // ✅ Mejora: Formateo de hora profesional
+          DateTime date;
+          try {
+            date = DateTime.parse(item['created_at']);
+          } catch (e) {
+            date = DateTime.now();
+          }
+          String hora = DateFormat('HH:mm').format(date);
+
+          return Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
-              ),
-              title: Text("Torso de Foto #$photoId", style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text("Pendiente de envío"),
-              trailing: IconButton(
-                icon: const Icon(Icons.close, color: Colors.redAccent),
-                onPressed: () async {
-                  final bool confirm = await _showDeleteConfirmDialog();
-                  if (confirm) {
-                    await _processDeletion(photoId);
-                  }
-                },
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: IntrinsicHeight(
+                child: Row(
+                  children: [
+                    // Lado izquierdo: Imagen
+                    GestureDetector(
+                      onTap: () => _showImagePreview(item['torso_image_url']),
+                      child: Container(
+                        width: 100,
+                        decoration: BoxDecoration(
+                          image: DecorationImage(
+                            image: FileImage(File(item['torso_image_url'])),
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Lado derecho: Información
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  "Foto #$photoId",
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                                Text(
+                                  hora,
+                                  style: TextStyle(color: Colors.grey[500], fontSize: 13, fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.access_time_filled, size: 14, color: Colors.orange),
+                                const SizedBox(width: 4),
+                                Text(
+                                  "Pendiente de envío",
+                                  style: TextStyle(color: Colors.orange[800], fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                            const Spacer(),
+                            Align(
+                              alignment: Alignment.bottomRight,
+                              child: TextButton.icon(
+                                onPressed: () async {
+                                  final bool confirm = await _showDeleteConfirmDialog();
+                                  if (confirm) await _processDeletion(photoId);
+                                },
+                                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                                label: const Text("Eliminar", style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                                style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(50, 30)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -148,17 +204,27 @@ class _QueueScreenState extends State<QueueScreen> {
     );
   }
 
-  // ✅ Borrado atómico: Limpia Disco, DB y Memoria RAM
+  Widget _buildSyncingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(color: Color(0xFF2563EB), strokeWidth: 5),
+          const SizedBox(height: 24),
+          const Text("Sincronizando...", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Text("No cierres la app por favor", style: TextStyle(color: Colors.grey[600])),
+        ],
+      ),
+    );
+  }
+
   Future<void> _processDeletion(int photoId) async {
     try {
-      // 1. Borrado físico y en DB local (Usando el método robusto v5)
       await LocalDBService.instance.deletePhoto(photoId);
-
-      // 2. Limpieza inmediata en UI para que no haya latencia
       setState(() {
         _pendingTorsos.removeWhere((t) => t['photo_id'] == photoId);
       });
-
       _showSnackBar("🗑️ Eliminado correctamente", Colors.redAccent);
     } catch (e) {
       _showSnackBar("⚠️ Error al eliminar: $e", Colors.red);
@@ -169,11 +235,12 @@ class _QueueScreenState extends State<QueueScreen> {
     return await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("¿Eliminar?"),
-        content: const Text("Se borrará la foto y su recorte permanentemente de este dispositivo."),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("¿Quieres eliminar la foto?"),
+        content: const Text("Esta acción borrará la foto original permanentemente."),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("NO")),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("SÍ", style: TextStyle(color: Colors.red))),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("CANCELAR", style: TextStyle(color: Colors.grey))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("BORRAR", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
         ],
       ),
     ) ?? false;
@@ -184,11 +251,15 @@ class _QueueScreenState extends State<QueueScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.check_circle_outline, size: 80, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text("Cola vacía", style: TextStyle(fontSize: 18, color: Colors.grey[600])),
+          Container(
+            padding: const EdgeInsets.all(30),
+            decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+            child: Icon(Icons.cloud_done_outlined, size: 80, color: Colors.green[300]),
+          ),
+          const SizedBox(height: 24),
+          const Text("¡No tienes fotos para enviar!", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text("Todas tus fotos han sido enviadas o eliminadas."),
+          //const Text("No hay fotos pendientes de envío.", style: TextStyle(color: Colors.grey, fontSize: 16)),
         ],
       ),
     );
