@@ -6,3 +6,4 @@ mejoras futuras:
 *mejorar latencia al subir foto(mensajes tardíos)
 *mejorar diseño
 
+

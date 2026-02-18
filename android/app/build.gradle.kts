@@ -1,14 +1,11 @@
-plugins {
-    id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
-    id("dev.flutter.flutter-gradle-plugin")
-}
-
 android {
     namespace = "com.picmerun.picmerun"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+
+    // ✅ Versión fija para compatibilidad con TFLite y ML Kit
+    compileSdk = 36
+
+    // ✅ Versión exacta del NDK requerida por tus plugins de IA
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -16,33 +13,26 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+        jvmTarget = "17"
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.picmerun.picmerun"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
 
-        // 🔥 CORRECCIÓN SENIOR: Cambiamos flutter.minSdkVersion por 26
-        // Esto es necesario para que TFLite (el cerebro de la IA) funcione.
-        minSdk = 26
+        // ✅ Mantener en 21 por requerimiento de Gregorio
+        minSdk = 21
 
+        // ✅ Usamos la referencia de flutter directamente para evitar el error de "unsupported"
         targetSdk = flutter.targetSdkVersion
+
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+        getByName("release") {
+            // Nota: Se usa getByName en .kts para mayor precisión
             signingConfig = signingConfigs.getByName("debug")
         }
     }
-}
-
-flutter {
-    source = "../.."
 }

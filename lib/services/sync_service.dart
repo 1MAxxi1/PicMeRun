@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:picmerun/config/app_config.dart';
 import 'package:picmerun/services/local_db_service.dart';
 import 'package:path/path.dart' as p;
+import 'package:picmerun/services/log_service.dart';
 
 class SyncService {
   final String _backendUrl = AppConfig.workerUrl;
@@ -40,7 +41,17 @@ class SyncService {
   /// Sube un torso individual cumpliendo con los requisitos del Worker
   Future<bool> _uploadOneTorso(Map<String, dynamic> torso) async {
     try {
-      final File imageFile = File(torso['torso_image_url']);
+      // ❌ ANTES: Apuntaba al recorte del mentón/pecho
+      // final File imageFile = File(torso['torso_image_url']);
+
+      // ✅ AHORA: Buscamos la foto original recortada de la CARA (FACE)
+      // Para esto, necesitamos que tu consulta SQL en LocalDBService incluya el file_url de la tabla photos
+      final File imageFile = File(torso['file_url'] ?? torso['torso_image_url']);
+
+      if (!imageFile.existsSync()) {
+        LogService.write("⚠️ Archivo no encontrado en: ${imageFile.path}");
+        return false;
+      }
 
       // Verificación de archivo físico
       if (!imageFile.existsSync()) {
@@ -54,7 +65,7 @@ class SyncService {
       // ✅ REQUISITO DEL WORKER: El Worker espera 'file_hash' para el nombre en R2
       // Usamos el nombre del archivo (que ya es un hash en tu nueva cámara)
       String fileName = p.basename(imageFile.path);
-      String hash = fileName.replaceAll('TORSO_', '').replaceAll('.jpg', '').replaceAll('IMG_', '');
+      String hash = fileName.split('_').last.replaceAll('.jpg', '');
 
       request.fields['file_hash'] = hash;
       request.fields['photo_id'] = torso['photo_id'].toString();

@@ -146,12 +146,18 @@ class LocalDBService {
 
   Future<List<Map<String, dynamic>>> getPendingTorsos() async {
     final db = await instance.database;
-    return await db.query(
-        'torso_processing_queue',
-        where: 'status = ?',
-        whereArgs: ['pending'],
-        orderBy: 'created_at DESC' // Prioriza lo más reciente
-    );
+
+    // ✅ CORRECCIÓN: Usamos un JOIN para traer la CARA (file_url) de la tabla 'photos'
+    // aunque estemos consultando la cola de torsos.
+    return await db.rawQuery('''
+      SELECT 
+        t.*, 
+        p.file_url 
+      FROM torso_processing_queue t
+      INNER JOIN photos p ON t.photo_id = p.id
+      WHERE t.status = ?
+      ORDER BY t.created_at DESC
+    ''', ['pending']);
   }
 
   Future<void> deletePhoto(int id) async {
