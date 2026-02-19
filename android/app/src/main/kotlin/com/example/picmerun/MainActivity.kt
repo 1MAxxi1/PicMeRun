@@ -1,4 +1,4 @@
-package com.picmerun.picmerun
+package com.example.picmerun
 
 import io.flutter.embedding.android.FlutterActivity
 
