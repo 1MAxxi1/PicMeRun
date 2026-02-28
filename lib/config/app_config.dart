@@ -17,7 +17,7 @@ class AppConfig {
 
   // ✅ CONFIDENCIALIDAD DE DETECCIÓN (Gregorio sugirió > 90%)
   // Si ML Kit está menos seguro que esto, la cara se ignora para evitar falsos positivos.
-  static double faceDetectionThreshold = 0.9;
+  static double faceDetectionThreshold = 0.75;
 
   // ✅ TAMAÑO MÍNIMO DE CARA (Scale 0.0 a 1.0)
   // 0.1 significa que el rostro debe ocupar al menos el 10% de la imagen.

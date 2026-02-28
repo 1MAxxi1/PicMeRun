@@ -1,3 +1,6 @@
+//log que esta en la camara principal
+
+
 import 'package:flutter/material.dart';
 import 'package:picmerun/services/log_service.dart';
 
@@ -14,7 +17,7 @@ class _LogViewScreenState extends State<LogViewScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text("Registro de Terreno", style: TextStyle(color: Colors.white)),
+        title: const Text("Registro Log en Terreno", style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.grey[900],
         actions: [
           IconButton(

@@ -23,7 +23,7 @@ class FaceService {
   bool isValidFace(img.Image faceImage) {
     // 1. Filtro de Tamaño: Bajamos de 80 a 40px para captar gente a lo lejos.
     // Un rostro de 40x40 en el moto g35 ya permite extraer rasgos básicos.
-    if (faceImage.width < 40 || faceImage.height < 40) {
+    if (faceImage.width < 80 || faceImage.height < 80) {
       // Log interno para depuración (opcional)
       // print('⚠️ Rostro descartado: Muy pequeño (${faceImage.width}x${faceImage.height})');
       return false;
@@ -32,7 +32,7 @@ class FaceService {
     // 2. Filtro de Proporción: Los corredores a veces inclinan la cabeza.
     // Flexibilizamos el ratio para evitar falsos descartes en movimiento.
     double aspect = faceImage.width / faceImage.height;
-    if (aspect < 0.5 || aspect > 1.8) {
+    if (aspect < 0.6 || aspect > 1.2) {
       return false;
     }
 

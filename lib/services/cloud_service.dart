@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 class CloudService {
   // Aquí pondremos la URL de tu Cloudflare Worker cuando lo creemos
-  static const String _workerUrl = 'https://tu-worker.workers.dev/upload';
+  static const String _workerUrl = 'https://morning-frog-acd5.gregorio-paz.workers.dev/upload';
 
   static Future<bool> uploadRunnerData({
     required Uint8List originalBytes,

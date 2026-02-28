@@ -18,6 +18,10 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
   late TabController _tabController;
   String _logContent = "Cargando logs de auditoría...";
 
+  // ✅ NUEVO: Memoria para la Selección Múltiple
+  final Set<int> _selectedIds = {};
+  bool get _isSelectionMode => _selectedIds.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
@@ -31,6 +35,8 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
     if (mounted) {
       setState(() {
         _pendingTorsos = List<Map<String, dynamic>>.from(data);
+        // Si al recargar ya no existen las fotos seleccionadas, limpiamos la memoria
+        _selectedIds.removeWhere((id) => !_pendingTorsos.any((t) => t['photo_id'] == id));
       });
     }
   }
@@ -38,8 +44,6 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
   // ✅ Nueva funcionalidad: Cargar logs del sistema
   Future<void> _loadAuditLogs() async {
     try {
-      // Asumiendo que LogService tiene un método para obtener el path o contenido
-      // Por ahora simulamos la lectura del archivo de logs para la auditoría
       final String content = await LogService.getLogs();
       if (mounted) setState(() => _logContent = content);
     } catch (e) {
@@ -48,13 +52,22 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
   }
 
   void _showSnackBar(String message, Color color) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color, duration: const Duration(seconds: 2)),
+    final messenger = ScaffoldMessenger.of(context);
+
+    // 🧹 LA ESCOBA MÁGICA: Borra cualquier cartelito viejo que siga en pantalla
+    messenger.clearSnackBars();
+
+    // 💬 Muestra el mensaje nuevo de inmediato
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating, // Hace que flote un poco (se ve más moderno)
+        duration: const Duration(seconds: 2), // Lo bajamos a 2 segundos para que sea rápido
+      ),
     );
   }
 
-  // ... (Tu función _showImagePreview se mantiene exacta)
   void _showImagePreview(String imagePath) {
     showDialog(
       context: context,
@@ -94,11 +107,81 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
     }
   }
 
+  // ✅ NUEVO: Lógica para manejar el toque (Selección múltiple)
+  void _toggleSelection(int photoId) {
+    setState(() {
+      if (_selectedIds.contains(photoId)) {
+        _selectedIds.remove(photoId);
+      } else {
+        _selectedIds.add(photoId);
+      }
+    });
+  }
+
+  // ✅ NUEVO: Lógica para seleccionar/deseleccionar todas
+  void _toggleSelectAll() {
+    setState(() {
+      if (_selectedIds.length == _pendingTorsos.length) {
+        _selectedIds.clear(); // Si están todas, las deselecciona
+      } else {
+        _selectedIds.addAll(_pendingTorsos.map((t) => t['photo_id'] as int)); // Selecciona todas
+      }
+    });
+  }
+
+  // ✅ NUEVO: Lógica para eliminar en bloque
+  Future<void> _deleteSelected() async {
+    final bool confirm = await _showDeleteConfirmDialog(isBulk: true);
+    if (!confirm) return;
+
+    final int count = _selectedIds.length;
+
+    try {
+      // Borramos una por una de la base de datos (o podrías hacer una query masiva en LocalDBService si la tuvieras)
+      for (int id in _selectedIds) {
+        await LocalDBService.instance.deletePhoto(id);
+      }
+
+      setState(() {
+        _pendingTorsos.removeWhere((t) => _selectedIds.contains(t['photo_id']));
+        _selectedIds.clear(); // Limpiamos la memoria después de borrar
+      });
+
+      _showSnackBar("🗑️ $count foto(s) eliminada(s) correctamente", Colors.redAccent);
+    } catch (e) {
+      _showSnackBar("⚠️ Error al eliminar fotos en bloque: $e", Colors.red);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
-      appBar: AppBar(
+      // ✅ AppBar Dinámico: Cambia si estamos en Modo Selección
+      appBar: _isSelectionMode
+          ? AppBar(
+        backgroundColor: const Color(0xFF1E293B),
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: Colors.white),
+          onPressed: () => setState(() => _selectedIds.clear()),
+        ),
+        title: Text("${_selectedIds.length} seleccionadas", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(
+            icon: Icon(
+                _selectedIds.length == _pendingTorsos.length ? Icons.deselect : Icons.select_all,
+                color: Colors.white),
+            onPressed: _toggleSelectAll,
+            tooltip: "Seleccionar Todas",
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_forever, color: Colors.redAccent, size: 28),
+            onPressed: _deleteSelected,
+            tooltip: "Eliminar Seleccionadas",
+          ),
+        ],
+      )
+          : AppBar(
         title: const Text("Gestión de Imágenes", style: TextStyle(fontWeight: FontWeight.bold)),
         elevation: 0,
         bottom: TabBar(
@@ -108,7 +191,7 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
           indicatorColor: const Color(0xFF2563EB),
           tabs: const [
             Tab(icon: Icon(Icons.cloud_queue), text: "Cola de Envío"),
-            Tab(icon: Icon(Icons.analytics_outlined), text: "Auditoría IA"),
+            Tab(icon: Icon(Icons.analytics_outlined), text: "Auditoría"),
           ],
         ),
         actions: [
@@ -132,91 +215,130 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
       ),
       body: TabBarView(
         controller: _tabController,
+        // ✅ Evitamos cambiar de pestaña si estamos seleccionando
+        physics: _isSelectionMode ? const NeverScrollableScrollPhysics() : const ScrollPhysics(),
         children: [
           // PESTAÑA 1: Tu Cola de Envío original
           _isSyncing ? _buildSyncingState() : (_pendingTorsos.isEmpty ? _buildEmptyState() : _buildQueueList()),
 
-          // PESTAÑA 2: Dashboard de Auditoría Profesional
+          // PESTAÑA 2: Dashboard de Auditoría Profesional (Estilo Terminal)
           _buildAuditDashboard(),
         ],
       ),
     );
   }
 
-  // ✅ Tu lógica de lista original extraída para claridad
   Widget _buildQueueList() {
     return ListView.builder(
       key: ValueKey(_pendingTorsos.hashCode),
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
       itemCount: _pendingTorsos.length,
       itemBuilder: (context, index) {
         final item = _pendingTorsos[index];
+
+        final String displayPath = item['torso_image_url'] ?? item['file_url'];
         final int photoId = item['photo_id'];
         DateTime date = DateTime.tryParse(item['created_at']) ?? DateTime.now();
         String hora = DateFormat('HH:mm').format(date);
 
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: IntrinsicHeight(
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => _showImagePreview(item['file_url'] ?? item['torso_image_url']),
-                    child: Container(
-                      width: 100,
-                      decoration: BoxDecoration(
-                        image: DecorationImage(
-                          image: FileImage(File(item['file_url'] ?? item['torso_image_url'])),
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+        final bool isSelected = _selectedIds.contains(photoId);
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12.0),
+          child: GestureDetector(
+            // ✅ NUEVO: Lógica de toques
+            onLongPress: () => _toggleSelection(photoId),
+            onTap: () {
+              if (_isSelectionMode) {
+                _toggleSelection(photoId); // Si ya estamos en modo selección, el toque normal selecciona/deselecciona
+              } else {
+                _showImagePreview(displayPath); // Si no, abre la foto grande
+              }
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                // ✅ Efecto visual de seleccionado
+                border: isSelected ? Border.all(color: Colors.blueAccent, width: 2) : Border.all(color: Colors.transparent, width: 2),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5)),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      // ✅ Checkbox y Miniatura
+                      Stack(
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text("Foto #$photoId", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                              Text(hora, style: TextStyle(color: Colors.grey[500], fontSize: 13)),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              const Icon(Icons.access_time_filled, size: 14, color: Colors.orange),
-                              const SizedBox(width: 4),
-                              Text("Pendiente de envío", style: TextStyle(color: Colors.orange[800], fontSize: 12, fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                          const Spacer(),
-                          Align(
-                            alignment: Alignment.bottomRight,
-                            child: TextButton.icon(
-                              onPressed: () async {
-                                final bool confirm = await _showDeleteConfirmDialog();
-                                if (confirm) await _processDeletion(photoId);
-                              },
-                              icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
-                              label: const Text("Eliminar", style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                          Container(
+                            width: 100,
+                            decoration: BoxDecoration(
+                              image: DecorationImage(
+                                image: FileImage(File(displayPath)),
+                                fit: BoxFit.cover,
+                              ),
                             ),
                           ),
+                          if (_isSelectionMode)
+                            Positioned(
+                              top: 5,
+                              left: 5,
+                              child: Container(
+                                decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+                                child: Icon(
+                                  isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                                  color: isSelected ? Colors.blueAccent : Colors.grey,
+                                  size: 24,
+                                ),
+                              ),
+                            ),
                         ],
                       ),
-                    ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text("Foto #$photoId", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  Text(hora, style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  const Icon(Icons.access_time_filled, size: 14, color: Colors.orange),
+                                  const SizedBox(width: 4),
+                                  Text("Pendiente de envío", style: TextStyle(color: Colors.orange[800], fontSize: 12, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                              const Spacer(),
+                              // ✅ Ocultamos el botón "Eliminar" individual si estamos en Modo Selección
+                              if (!_isSelectionMode)
+                                Align(
+                                  alignment: Alignment.bottomRight,
+                                  child: TextButton.icon(
+                                    onPressed: () async {
+                                      final bool confirm = await _showDeleteConfirmDialog();
+                                      if (confirm) await _processDeletion(photoId);
+                                    },
+                                    icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                                    label: const Text("Eliminar", style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -225,30 +347,35 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
     );
   }
 
-  // ✅ NUEVO: Dashboard de Auditoría para el Analista
+  // ✅ MODIFICADO: Dashboard de Auditoría con diseño de Terminal
   Widget _buildAuditDashboard() {
     return Container(
-      color: const Color(0xFF0F172A), // Fondo tipo terminal
+      color: Colors.black, // Fondo negro estilo terminal
+      width: double.infinity,
+      padding: const EdgeInsets.all(16.0),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: const Color(0xFF1E293B),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _auditStat("Fotos", _pendingTorsos.length.toString(), Icons.image),
-                _auditStat("Logs", _logContent.split('\n').length.toString(), Icons.list_alt),
-                _auditStat("IA Status", "Online", Icons.check_circle, color: Colors.green),
-              ],
+          const Text(
+            "--- INFORMACIÓN DE LAS IMÁGENES ---",
+            style: TextStyle(
+              color: Colors.greenAccent,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+              fontSize: 14,
             ),
           ),
+          const SizedBox(height: 10),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
               child: Text(
-                _logContent,
-                style: const TextStyle(color: Color(0xFF10B981), fontFamily: 'monospace', fontSize: 12),
+                _logContent.isEmpty ? "No hay registros disponibles." : _logContent,
+                style: const TextStyle(
+                  color: Colors.greenAccent,
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  height: 1.5, // Interlineado para mejor lectura
+                ),
               ),
             ),
           ),
@@ -257,19 +384,7 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _auditStat(String label, String value, IconData icon, {Color color = Colors.white}) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(height: 4),
-        Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)),
-      ],
-    );
-  }
-
-  // ... (Resto de tus widgets auxiliares: _buildSyncingState, _buildEmptyState, _processDeletion, _showDeleteConfirmDialog)
-  // [Se mantienen exactamente igual a tu código original]
+  // Se eliminó la función _auditStat porque ya no se usa en el nuevo diseño
 
   Widget _buildSyncingState() {
     return Center(
@@ -298,13 +413,14 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
     }
   }
 
-  Future<bool> _showDeleteConfirmDialog() async {
+  // ✅ MODIFICADO: Adaptado para mostrar mensaje según si es borrado individual o múltiple
+  Future<bool> _showDeleteConfirmDialog({bool isBulk = false}) async {
     return await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("¿Quieres eliminar la foto?"),
-        content: const Text("Esta acción borrará la foto original permanentemente."),
+        title: Text(isBulk ? "¿Eliminar ${_selectedIds.length} fotos?" : "¿Quieres eliminar la foto?"),
+        content: const Text("Esta acción borrará las fotos originales permanentemente de tu celular."),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("CANCELAR", style: TextStyle(color: Colors.grey))),
           TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("BORRAR", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),

@@ -7,7 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:picmerun/services/log_service.dart';
 
 class SyncService {
-  final String _backendUrl = AppConfig.workerUrl;
+  // ✅ FIX 1: Inyectamos la URL real directamente para saltarnos el AppConfig antiguo
+  final String _backendUrl = 'https://morning-frog-acd5.gregorio-paz.workers.dev/upload';
 
   static final SyncService _instance = SyncService._internal();
   factory SyncService() => _instance;
@@ -41,9 +42,6 @@ class SyncService {
   /// Sube un torso individual cumpliendo con los requisitos del Worker
   Future<bool> _uploadOneTorso(Map<String, dynamic> torso) async {
     try {
-      // ❌ ANTES: Apuntaba al recorte del mentón/pecho
-      // final File imageFile = File(torso['torso_image_url']);
-
       // ✅ AHORA: Buscamos la foto original recortada de la CARA (FACE)
       // Para esto, necesitamos que tu consulta SQL en LocalDBService incluya el file_url de la tabla photos
       final File imageFile = File(torso['file_url'] ?? torso['torso_image_url']);
@@ -70,7 +68,7 @@ class SyncService {
       request.fields['file_hash'] = hash;
       request.fields['photo_id'] = torso['photo_id'].toString();
       request.fields['timestamp'] = DateTime.now().toIso8601String();
-      request.fields['match_threshold'] = AppConfig.identityMatchThreshold.toString();
+      request.fields['match_threshold'] = AppConfig.identityMatchThreshold.toString(); // Mantenemos intacto tu AppConfig
 
       var multipartFile = await http.MultipartFile.fromPath(
         'image',
@@ -80,8 +78,9 @@ class SyncService {
 
       print("📤 Enviando a Cloudflare: Photo #${torso['photo_id']} (Hash: $hash)");
 
+      // ✅ FIX 2: Límite estricto de 15 segundos saltándonos el AppConfig para forzar el corte
       var streamedResponse = await request.send().timeout(
-        const Duration(seconds: AppConfig.connectionTimeoutSeconds),
+        const Duration(seconds: 15),
       );
 
       var response = await http.Response.fromStream(streamedResponse);

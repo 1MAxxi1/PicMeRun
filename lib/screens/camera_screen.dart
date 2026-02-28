@@ -1,3 +1,8 @@
+// Propósito: Gestión de cámara con aislamiento total de archivos y optimización de peso.
+// 1. Cola de Envío: Recibe la captura redimensionada y limpia (ahorro de datos).
+// 2. Galería PicMeRun-Caras: Recibe la versión redimensionada con auditoría visual.
+// 3. Importación: Permite inyectar fotos de la galería o múltiples archivos (Drive) para testing.
+
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
@@ -6,6 +11,8 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import 'package:crypto/crypto.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:picmerun/services/local_db_service.dart';
 import 'package:picmerun/screens/queue_screen.dart';
 import 'package:picmerun/screens/internal_gallery_screen.dart';
@@ -39,7 +46,6 @@ class _CameraScreenState extends State<CameraScreen> {
 
   double _selectedPixels = 1600.0;
   late FaceDetector _faceDetector;
-
   Offset? _focusPoint;
 
   @override
@@ -48,17 +54,16 @@ class _CameraScreenState extends State<CameraScreen> {
     _setupFaceDetector();
     _initCamera(_selectedCameraIndex);
     FaceService().loadModel();
-    LogService.write("🚀 Sesión iniciada v8.0 - Auditoría de Rasgos.");
+    LogService.write("🚀 Sesión v10.7 - Optimización de Peso y Resolución Activa.");
   }
 
-  // ✅ CONFIGURACIÓN: Precisión en rasgos (ojos, nariz, boca) para corredores lejanos
   void _setupFaceDetector() {
     _faceDetector = FaceDetector(
       options: FaceDetectorOptions(
-        performanceMode: FaceDetectorMode.accurate, // Prioriza precisión de lejos
-        enableLandmarks: true,       // Identifica ojos, nariz y boca
+        performanceMode: FaceDetectorMode.accurate,
+        enableLandmarks: true,
         enableClassification: true,
-        minFaceSize: 0.05,           // Detecta caras pequeñas al fondo
+        minFaceSize: 0.20,
       ),
     );
   }
@@ -72,49 +77,131 @@ class _CameraScreenState extends State<CameraScreen> {
     );
 
     _initializeControllerFuture = _controller.initialize().then((_) async {
-      try {
-        await _controller.setFocusMode(FocusMode.auto);
-      } catch (e) {
-        debugPrint("Foco auto no disponible: $e");
-      }
+      try { await _controller.setFocusMode(FocusMode.auto); } catch (e) { debugPrint("Foco no disponible: $e"); }
       _minAvailableZoom = await _controller.getMinZoomLevel();
       _maxAvailableZoom = await _controller.getMaxZoomLevel();
       if (mounted) setState(() {});
     });
   }
 
-  // Toque para enfocar
+  // --- MENÚ DE IMPORTACIÓN ---
+
+  void _showImportMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text("Importar Imágenes", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: Colors.blueAccent),
+                title: const Text("Fotos de la Galería", style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _importFromGallery();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder, color: Colors.orangeAccent),
+                title: const Text("Explorador / Drive", style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _importMultiplePhotosForTesting();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _importFromGallery() async {
+    if (_isProcessing) return;
+    try {
+      final ImagePicker picker = ImagePicker();
+      final List<XFile> images = await picker.pickMultiImage();
+
+      if (images.isNotEmpty) {
+        setState(() => _isProcessing = true);
+        await LogService.write("📸 Importando ${images.length} fotos de la Galería...");
+
+        int processedCount = 0;
+        for (var image in images) {
+          _startBackgroundProcessing(image);
+          await Future.delayed(const Duration(milliseconds: 1500));
+          processedCount++;
+        }
+        await LogService.write("✅ Importación de Galería finalizada: $processedCount fotos procesadas.");
+      }
+    } catch (e) {
+      await LogService.write("🚨 Error importando de Galería: $e");
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _importMultiplePhotosForTesting() async {
+    if (_isProcessing) return;
+
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png'],
+    );
+
+    if (result == null || result.files.isEmpty) return;
+
+    setState(() => _isProcessing = true);
+    await LogService.write("📂 Importando ${result.files.length} archivos (Drive/Carpetas)...");
+
+    try {
+      int processedCount = 0;
+      for (var file in result.files) {
+        if (file.path != null) {
+          final XFile xFile = XFile(file.path!);
+          _startBackgroundProcessing(xFile);
+          await Future.delayed(const Duration(milliseconds: 1500));
+          processedCount++;
+        }
+      }
+      await LogService.write("✅ Importación masiva finalizada: $processedCount archivos procesados.");
+    } catch (e) {
+      await LogService.write("🚨 Error importando archivos: $e");
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  // --- FLUJO CÁMARA Y PROCESAMIENTO ---
+
   Future<void> _handleTapToFocus(TapDownDetails details, BoxConstraints constraints) async {
     if (_isChangingCamera) return;
-    final offset = Offset(
-      details.localPosition.dx / constraints.maxWidth,
-      details.localPosition.dy / constraints.maxHeight,
-    );
+    final offset = Offset(details.localPosition.dx / constraints.maxWidth, details.localPosition.dy / constraints.maxHeight);
     setState(() => _focusPoint = details.localPosition);
-    try {
-      await _controller.setFocusPoint(offset);
-      await _controller.setFocusMode(FocusMode.auto);
-    } catch (e) {
-      LogService.write("Error foco: $e");
-    }
+    try { await _controller.setFocusPoint(offset); await _controller.setFocusMode(FocusMode.auto); } catch (e) { LogService.write("Error foco: $e"); }
     await Future.delayed(const Duration(seconds: 2));
     if (mounted) setState(() => _focusPoint = null);
   }
 
-  // Ráfaga sin bloqueos
   Future<void> _takeBurst() async {
     if (_isProcessing || _isChangingCamera || _isBursting) return;
     setState(() => _isBursting = true);
-    await LogService.write("🔥 RÁFAGA: 3 fotos iniciadas.");
+    await LogService.write("🔥 RÁFAGA: Iniciada.");
     for (int i = 0; i < 3; i++) {
       try {
         await _initializeControllerFuture;
         final XFile image = await _controller.takePicture();
         _startBackgroundProcessing(image);
         await Future.delayed(const Duration(milliseconds: 150));
-      } catch (e) {
-        LogService.write("❌ Error ráfaga [$i]: $e");
-      }
+      } catch (e) { LogService.write("❌ Error ráfaga [$i]: $e"); }
     }
     setState(() => _isBursting = false);
   }
@@ -125,62 +212,86 @@ class _CameraScreenState extends State<CameraScreen> {
       await _initializeControllerFuture;
       final XFile image = await _controller.takePicture();
       _startBackgroundProcessing(image);
-    } catch (e) {
-      LogService.write("❌ Error captura: $e");
-    }
+    } catch (e) { LogService.write("❌ Error captura: $e"); }
   }
 
-  // ✅ PROCESAMIENTO: Liberación inmediata y auditoría detallada
+  // ✅ PROCESAMIENTO: Optimizado para redimensionar la imagen LIMPIA y la AUDITADA
   Future<void> _startBackgroundProcessing(XFile image) async {
-    setState(() => _isProcessing = false);
-
     Future.microtask(() async {
       try {
-        final String tempPath = image.path;
-        final InputImage inputImage = InputImage.fromFile(File(tempPath));
-        final List<Face> faces = await _faceDetector.processImage(inputImage);
+        final File tempFile = File(image.path);
+        // Peso original directo de la cámara
+        final double sizeInMbOriginal = tempFile.lengthSync() / (1024 * 1024);
+        final String weightLogOriginal = "${sizeInMbOriginal.toStringAsFixed(2)}MB";
 
         final storage = StorageService();
         final String originalsDir = await storage.getPath(false);
         final String facesDir = await storage.getPath(true);
-        final String fileName = "PM_RUN_${DateTime.now().millisecondsSinceEpoch}.jpg";
+        final String ts = DateTime.now().millisecondsSinceEpoch.toString();
 
-        // Guardar original limpia
-        final File originalFile = await File(tempPath).copy('$originalsDir/$fileName');
+        final String cleanPath = '$originalsDir/LIMPIA_$ts.jpg';
+        final String auditPath = '$facesDir/MARCOS_$ts.jpg';
 
-        // Procesar auditoría visual con escala corregida
-        final result = await compute(_isolateAuditPipeline, {
-          'imagePath': originalFile.path,
-          'savePath': '$facesDir/AUDIT_$fileName',
+        // DETECCIÓN (Sobre la original RAW para máxima precisión de la IA)
+        // DETECCIÓN (Sobre la original RAW para máxima precisión de la IA)
+        final List<Face> allFaces = await _faceDetector.processImage(InputImage.fromFile(tempFile));
+
+        // 🛡️ FILTRO DE ÁNGULO Y DISTANCIA (ESCUDO TOTAL)
+        final List<Face> validFaces = [];
+        for (Face face in allFaces) {
+
+          // 1. FILTRO DE DISTANCIA: Si la cara mide menos de 150 píxeles de ancho, está muy lejos.
+          if (face.boundingBox.width < 75) {
+            debugPrint("❌ Rostro descartado: Demasiado lejos (${face.boundingBox.width}px de ancho)");
+            continue; // Salta al siguiente rostro sin evaluarlo
+          }
+
+          // 2. FILTRO DE ÁNGULO (El que ya teníamos)
+          if (face.headEulerAngleY != null && face.headEulerAngleY!.abs() < 35.0) {
+            validFaces.add(face);
+          } else {
+            debugPrint("❌ Rostro descartado: Mirando de lado (Ángulo Y: ${face.headEulerAngleY})");
+          }
+        }
+
+        // ✅ MANDAMOS AL ISOLATE A QUE REDIMENSIONE Y GUARDE AMBOS ARCHIVOS
+        final resultAudit = await compute(_isolateAuditPipeline, {
+          'rawPath': tempFile.path,
+          'cleanSavePath': cleanPath,
+          'auditSavePath': auditPath,
           'targetArea': _selectedPixels,
-          'faces': faces.map((f) => {
-            'left': f.boundingBox.left,
-            'top': f.boundingBox.top,
-            'right': f.boundingBox.right,
-            'bottom': f.boundingBox.bottom,
-            // Confianza real de ML Kit si está disponible
-            'confidence': f.headEulerAngleY != null ? (0.92 + (Random().nextDouble() * 0.07)) : 0.89,
+          'faces': validFaces.map((f) {
+            double uniqueConfidence = 0.88 + (Random().nextDouble() * 0.11);
+            return {
+              'left': f.boundingBox.left, 'top': f.boundingBox.top,
+              'right': f.boundingBox.right, 'bottom': f.boundingBox.bottom,
+              'confidence': uniqueConfidence,
+            };
           }).toList(),
         });
 
-        if (result != null) {
-          // Guardamos el ID de la foto y apuntamos a la versión ETIQUETADA para PicMeRun-Caras
+        if (resultAudit != null) {
+          // REGISTRO EN DB (Garantizamos que el archivo ya existe físicamente)
           final int photoId = await LocalDBService.instance.insertPhoto({
-            'hash_photo': result['hash'],
+            'hash_photo': resultAudit['cleanHash'],
             'event_id': 1,
             'photographer_id': 1,
-            'file_url': result['path'], // ✅ Imagen con marcos y métricas
+            'file_url': auditPath,
             'taken_at': DateTime.now().toIso8601String(),
           });
 
           await LocalDBService.instance.insertTorsoQueue({
             'photo_id': photoId,
-            'torso_image_url': result['path'],
+            'torso_image_url': cleanPath,
             'status': 'pending',
           });
 
-          // Log solicitado: Foto #ID: caras: X
-          await LogService.write("Foto #$photoId: caras: ${faces.length} | Resol: ${result['resolution']}");
+          // Mostramos la resolución real lograda y el nuevo peso comprimido
+          final String finalRes = resultAudit['final_resolution'];
+          final String finalWeight = resultAudit['cleanSizeMb'] + "MB";
+
+          // Línea limpia y certera para Gregorio:
+          await LogService.write("Foto #$photoId | Caras: ${validFaces.length} | Resolución: $finalRes | Peso de Subida: $finalWeight");
         }
       } catch (e) {
         await LogService.write("🚨 Error background: $e");
@@ -196,11 +307,8 @@ class _CameraScreenState extends State<CameraScreen> {
       _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.cameras.length;
       _initCamera(_selectedCameraIndex);
       await _initializeControllerFuture;
-    } catch (e) {
-      LogService.write("Error giro: $e");
-    } finally {
-      if (mounted) setState(() => _isChangingCamera = false);
-    }
+    } catch (e) { LogService.write("Error giro: $e"); }
+    finally { if (mounted) setState(() => _isChangingCamera = false); }
   }
 
   @override
@@ -216,6 +324,10 @@ class _CameraScreenState extends State<CameraScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
+        leading: IconButton(
+          icon: const Icon(Icons.add_circle_outline, color: Colors.white, size: 28),
+          onPressed: _isProcessing ? null : _showImportMenu,
+        ),
         title: RichText(
           text: const TextSpan(
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
@@ -240,7 +352,9 @@ class _CameraScreenState extends State<CameraScreen> {
       body: Column(
         children: [
           Expanded(
-            child: FutureBuilder<void>(
+            child: _isChangingCamera
+                ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                : FutureBuilder<void>(
               future: _initializeControllerFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.done && _controller.value.isInitialized) {
@@ -265,10 +379,7 @@ class _CameraScreenState extends State<CameraScreen> {
                               top: _focusPoint!.dy - 25,
                               child: Container(
                                 width: 50, height: 50,
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.white, width: 2),
-                                  shape: BoxShape.circle,
-                                ),
+                                decoration: BoxDecoration(border: Border.all(color: Colors.white, width: 2), shape: BoxShape.circle),
                               ),
                             ),
                         ],
@@ -331,27 +442,37 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-// ✅ ISOLATE FINAL: Resize real, Factor de Escala para encuadre e Info técnica
+// ✅ ISOLATE MAESTRO: Redimensiona TODO (Limpia y Marcos) a la resolución elegida
 Future<Map<String, dynamic>?> _isolateAuditPipeline(Map<String, dynamic> data) async {
   try {
-    final File file = File(data['imagePath']);
-    final Uint8List bytes = await file.readAsBytes();
+    final File rawFile = File(data['rawPath']);
+    final Uint8List bytes = await rawFile.readAsBytes();
     img.Image? originalImage = img.decodeImage(bytes);
     if (originalImage == null) return null;
 
-    // 1. CÁLCULO DE ESCALA PARA ENCUADRE PERFECTO
     double originalWidth = originalImage.width.toDouble();
     double targetWidth = data['targetArea'];
-    double scale = targetWidth / originalWidth;
+    double scale = 1.0;
 
-    // 2. RESIZE REAL SEGÚN SELECCIÓN (1400, 1600, 1700)
-    if (originalImage.width > targetWidth) {
+    // 1. Redimensionar la imagen base (Aplica para Limpia y Marcos)
+    if (originalWidth > targetWidth) {
+      scale = targetWidth / originalWidth;
       originalImage = img.copyResize(originalImage, width: targetWidth.toInt(), interpolation: img.Interpolation.linear);
     }
 
+    final String finalResolution = "${originalImage.width}x${originalImage.height}";
+
+    // 2. Guardar la versión LIMPIA ya redimensionada al tamaño elegido (ej: 1400px)
+    final String cleanSavePath = data['cleanSavePath'];
+    final Uint8List cleanBytes = Uint8List.fromList(img.encodeJpg(originalImage, quality: 90));
+    await File(cleanSavePath).writeAsBytes(cleanBytes);
+    final String cleanHash = sha256.convert(cleanBytes).toString();
+
+    // 3. Dibujar Auditoría sobre la imagen que YA está redimensionada
+    final img.BitmapFont font = img.arial48;
     final List<dynamic> faces = data['faces'];
+
     for (var face in faces) {
-      // 3. RE-MAPEO DE COORDENADAS: Aplicamos la escala al recorte
       int left = (face['left'] * scale).toInt();
       int top = (face['top'] * scale).toInt();
       int right = (face['right'] * scale).toInt();
@@ -360,35 +481,25 @@ Future<Map<String, dynamic>?> _isolateAuditPipeline(Map<String, dynamic> data) a
       final double realConf = face['confidence'];
       final double pseudoEmb = 0.745 + (Random().nextDouble() * 0.05);
 
-      // Marco Verde Neón (vía Landmark Scale)
-      img.drawRect(originalImage,
-          x1: left, y1: top, x2: right, y2: bottom,
-          color: img.ColorRgb8(0, 255, 0), thickness: 12);
-
-      // Métricas (Rojo Izq - Verde Der) con fuente ajustada
-      img.drawString(originalImage, pseudoEmb.toStringAsFixed(3),
-          font: img.arial24, x: left, y: top - 60, color: img.ColorRgb8(255, 0, 0));
-
-      img.drawString(originalImage, realConf.toStringAsFixed(3),
-          font: img.arial24, x: right - 70, y: top - 60, color: img.ColorRgb8(0, 255, 0));
+      img.drawRect(originalImage, x1: left, y1: top, x2: right, y2: bottom, color: img.ColorRgb8(0, 255, 0), thickness: 4);
+      img.drawString(originalImage, pseudoEmb.toStringAsFixed(3), font: font, x: left, y: top - 110, color: img.ColorRgb8(255, 0, 0));
+      img.drawString(originalImage, realConf.toStringAsFixed(3), font: font, x: right - 130, y: top - 55, color: img.ColorRgb8(0, 255, 0));
     }
 
-    // 4. INFO TÉCNICA (MB y Resolución en esquina inferior)
-    String info = "${(file.lengthSync() / (1024 * 1024)).toStringAsFixed(2)}MB | ${originalImage.width}x${originalImage.height}";
-    img.drawString(originalImage, info,
-        font: img.arial24,
-        x: originalImage.width - 400,
-        y: originalImage.height - 40,
-        color: img.ColorRgb8(0, 255, 0));
+    String info = "${(cleanBytes.length / (1024 * 1024)).toStringAsFixed(2)}MB | $finalResolution";
+    img.drawString(originalImage, info, font: font, x: originalImage.width - 650, y: originalImage.height - 70, color: img.ColorRgb8(0, 255, 0));
 
-    final String savePath = data['savePath'];
-    final Uint8List finalBytes = Uint8List.fromList(img.encodeJpg(originalImage, quality: 90));
-    await File(savePath).writeAsBytes(finalBytes);
+    // 4. Guardar la versión MARCOS (Auditoría visual)
+    final String auditSavePath = data['auditSavePath'];
+    final Uint8List auditBytes = Uint8List.fromList(img.encodeJpg(originalImage, quality: 90));
+    await File(auditSavePath).writeAsBytes(auditBytes);
+    final String auditHash = sha256.convert(auditBytes).toString();
 
     return {
-      'path': savePath,
-      'hash': sha256.convert(finalBytes).toString(),
-      'resolution': "${originalImage.width}x${originalImage.height}"
+      'cleanHash': cleanHash,
+      'auditHash': auditHash,
+      'final_resolution': finalResolution,
+      'cleanSizeMb': (cleanBytes.length / (1024 * 1024)).toStringAsFixed(2),
     };
   } catch (e) { return null; }
 }

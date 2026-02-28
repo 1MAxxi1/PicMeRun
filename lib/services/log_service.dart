@@ -1,3 +1,5 @@
+//log que esta en gestion de imagenes
+
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
