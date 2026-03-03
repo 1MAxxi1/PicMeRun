@@ -4,23 +4,16 @@
 // 3. Importación: Permite inyectar fotos de la galería o múltiples archivos (Drive) para testing.
 
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
-import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:image/image.dart' as img;
-import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:picmerun/services/local_db_service.dart';
 import 'package:picmerun/screens/queue_screen.dart';
 import 'package:picmerun/screens/internal_gallery_screen.dart';
 import 'package:picmerun/screens/log_view_screen.dart';
 import 'package:picmerun/services/face_service.dart';
 import 'package:picmerun/services/log_service.dart';
-import 'package:picmerun/services/storage_service.dart';
-import 'dart:math';
+import 'package:picmerun/services/camera_processing_service.dart'; // <-- El Nuevo Cerebro
 
 class CameraScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -46,27 +39,14 @@ class _CameraScreenState extends State<CameraScreen> {
 
   // ✅ NUEVO: La resolución por defecto ahora es 1800
   double _selectedPixels = 1800.0;
-  late FaceDetector _faceDetector;
   Offset? _focusPoint;
 
   @override
   void initState() {
     super.initState();
-    _setupFaceDetector();
     _initCamera(_selectedCameraIndex);
     FaceService().loadModel();
-    LogService.write("🚀 Sesión v10.8 - UI Inmersiva y Resoluciones Ultra.");
-  }
-
-  void _setupFaceDetector() {
-    _faceDetector = FaceDetector(
-      options: FaceDetectorOptions(
-        performanceMode: FaceDetectorMode.accurate,
-        enableLandmarks: true,
-        enableClassification: true,
-        minFaceSize: 0.20,
-      ),
-    );
+    LogService.write("🚀 Sesión v10.9 - Arquitectura Limpia (MVC) Activa.");
   }
 
   void _initCamera(int cameraIndex) {
@@ -216,81 +196,9 @@ class _CameraScreenState extends State<CameraScreen> {
     } catch (e) { LogService.write("❌ Error captura: $e"); }
   }
 
+  // 🧠 ESTE ES EL GRAN CAMBIO: Derivamos todo el trabajo pesado al nuevo servicio
   Future<void> _startBackgroundProcessing(XFile image) async {
-    Future.microtask(() async {
-      try {
-        final File tempFile = File(image.path);
-        final double sizeInMbOriginal = tempFile.lengthSync() / (1024 * 1024);
-        final String weightLogOriginal = "${sizeInMbOriginal.toStringAsFixed(2)}MB";
-
-        final storage = StorageService();
-        final String originalsDir = await storage.getPath(false);
-        final String facesDir = await storage.getPath(true);
-        final String ts = DateTime.now().millisecondsSinceEpoch.toString();
-
-        final String cleanPath = '$originalsDir/LIMPIA_$ts.jpg';
-        final String auditPath = '$facesDir/MARCOS_$ts.jpg';
-
-        final List<Face> allFaces = await _faceDetector.processImage(InputImage.fromFile(tempFile));
-
-        final List<Face> validFaces = [];
-        for (Face face in allFaces) {
-          if (face.boundingBox.width < 75) {
-            continue;
-          }
-
-          if (face.headEulerAngleY != null && face.headEulerAngleY!.abs() < 35.0) {
-            validFaces.add(face);
-          }
-        }
-
-        final resultAudit = await compute(_isolateAuditPipeline, {
-          'rawPath': tempFile.path,
-          'cleanSavePath': cleanPath,
-          'auditSavePath': auditPath,
-          'targetArea': _selectedPixels,
-          'faces': validFaces.map((f) {
-            return {
-              'left': f.boundingBox.left,
-              'top': f.boundingBox.top,
-              'right': f.boundingBox.right,
-              'bottom': f.boundingBox.bottom,
-              'angleY': f.headEulerAngleY ?? 0.0,
-              'faceWidth': f.boundingBox.width,
-            };
-          }).toList(),
-        });
-
-        if (resultAudit != null) {
-          final int photoId = await LocalDBService.instance.insertPhoto({
-            'hash_photo': resultAudit['cleanHash'],
-            'event_id': 1,
-            'photographer_id': 1,
-            'file_url': auditPath,
-            'taken_at': DateTime.now().toIso8601String(),
-          });
-
-          await LocalDBService.instance.insertTorsoQueue({
-            'photo_id': photoId,
-            'torso_image_url': cleanPath,
-            'status': 'pending',
-          });
-
-          final String finalRes = resultAudit['final_resolution'];
-          final String finalWeight = resultAudit['cleanSizeMb'] + "MB";
-
-          String telemetryLog = validFaces.isEmpty
-              ? "Sin datos"
-              : validFaces.map((f) {
-            return "[Ang: ${f.headEulerAngleY?.abs().toStringAsFixed(1)}° | ${f.boundingBox.width.toInt()}px]";
-          }).join(", ");
-
-          await LogService.write("Foto #$photoId | Caras: ${validFaces.length} | Detalles: $telemetryLog | Res: $finalRes | Peso: $finalWeight");
-        }
-      } catch (e) {
-        await LogService.write("🚨 Error background: $e");
-      }
-    });
+    await CameraProcessingService.processPhoto(image, _selectedPixels);
   }
 
   Future<void> _toggleCamera() async {
@@ -308,7 +216,7 @@ class _CameraScreenState extends State<CameraScreen> {
   @override
   void dispose() {
     _controller.dispose();
-    _faceDetector.close();
+    CameraProcessingService.dispose(); // <-- Usamos el servicio para cerrar la IA
     super.dispose();
   }
 
@@ -492,73 +400,4 @@ class _CameraScreenState extends State<CameraScreen> {
       ),
     );
   }
-}
-
-Future<Map<String, dynamic>?> _isolateAuditPipeline(Map<String, dynamic> data) async {
-  try {
-    final File rawFile = File(data['rawPath']);
-    final Uint8List bytes = await rawFile.readAsBytes();
-    img.Image? originalImage = img.decodeImage(bytes);
-    if (originalImage == null) return null;
-
-    double origWidth = originalImage.width.toDouble();
-    double origHeight = originalImage.height.toDouble();
-    double longestSide = max(origWidth, origHeight); // Buscamos el lado más largo
-    double targetPixels = data['targetArea'];
-    double scale = 1.0;
-
-    // Si la foto no mide exactamente lo que pediste, la obligamos (encogiendo o estirando)
-    if (longestSide != targetPixels) {
-      scale = targetPixels / longestSide;
-      if (origWidth >= origHeight) {
-        // Si es Horizontal, clavamos el Ancho a tu objetivo
-        originalImage = img.copyResize(originalImage, width: targetPixels.toInt(), interpolation: img.Interpolation.linear);
-      } else {
-        // Si es Vertical, clavamos el Alto a tu objetivo
-        originalImage = img.copyResize(originalImage, height: targetPixels.toInt(), interpolation: img.Interpolation.linear);
-      }
-    }
-
-    final String finalResolution = "${originalImage.width}x${originalImage.height}";
-
-    final String cleanSavePath = data['cleanSavePath'];
-    final Uint8List cleanBytes = Uint8List.fromList(img.encodeJpg(originalImage, quality: 90));
-    await File(cleanSavePath).writeAsBytes(cleanBytes);
-    final String cleanHash = sha256.convert(cleanBytes).toString();
-
-    final img.BitmapFont font = img.arial48;
-    final List<dynamic> faces = data['faces'];
-
-    for (var face in faces) {
-      int left = (face['left'] * scale).toInt();
-      int top = (face['top'] * scale).toInt();
-      int right = (face['right'] * scale).toInt();
-      int bottom = (face['bottom'] * scale).toInt();
-
-      final double angleY = (face['angleY'] as double).abs();
-      final double faceWidth = face['faceWidth'];
-
-      String textSize = "${faceWidth.toInt()}px";
-      String textAngle = "A: ${angleY.toStringAsFixed(1)}";
-
-      img.drawRect(originalImage, x1: left, y1: top, x2: right, y2: bottom, color: img.ColorRgb8(0, 255, 0), thickness: 4);
-      img.drawString(originalImage, textSize, font: font, x: left, y: top - 110, color: img.ColorRgb8(0, 255, 0));
-      img.drawString(originalImage, textAngle, font: font, x: left, y: top - 55, color: img.ColorRgb8(255, 50, 50));
-    }
-
-    String info = "${(cleanBytes.length / (1024 * 1024)).toStringAsFixed(2)}MB | $finalResolution";
-    img.drawString(originalImage, info, font: font, x: originalImage.width - 650, y: originalImage.height - 70, color: img.ColorRgb8(0, 255, 0));
-
-    final String auditSavePath = data['auditSavePath'];
-    final Uint8List auditBytes = Uint8List.fromList(img.encodeJpg(originalImage, quality: 90));
-    await File(auditSavePath).writeAsBytes(auditBytes);
-    final String auditHash = sha256.convert(auditBytes).toString();
-
-    return {
-      'cleanHash': cleanHash,
-      'auditHash': auditHash,
-      'final_resolution': finalResolution,
-      'cleanSizeMb': (cleanBytes.length / (1024 * 1024)).toStringAsFixed(2),
-    };
-  } catch (e) { return null; }
 }
