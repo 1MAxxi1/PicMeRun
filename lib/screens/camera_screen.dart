@@ -44,7 +44,8 @@ class _CameraScreenState extends State<CameraScreen> {
   double _maxAvailableZoom = 1.0;
   double _baseZoomLevel = 1.0;
 
-  double _selectedPixels = 1600.0;
+  // ✅ NUEVO: La resolución por defecto ahora es 1800
+  double _selectedPixels = 1800.0;
   late FaceDetector _faceDetector;
   Offset? _focusPoint;
 
@@ -54,7 +55,7 @@ class _CameraScreenState extends State<CameraScreen> {
     _setupFaceDetector();
     _initCamera(_selectedCameraIndex);
     FaceService().loadModel();
-    LogService.write("🚀 Sesión v10.7 - Optimización de Peso y Resolución Activa.");
+    LogService.write("🚀 Sesión v10.8 - UI Inmersiva y Resoluciones Ultra.");
   }
 
   void _setupFaceDetector() {
@@ -215,12 +216,10 @@ class _CameraScreenState extends State<CameraScreen> {
     } catch (e) { LogService.write("❌ Error captura: $e"); }
   }
 
-  // ✅ PROCESAMIENTO: Optimizado para redimensionar la imagen LIMPIA y la AUDITADA
   Future<void> _startBackgroundProcessing(XFile image) async {
     Future.microtask(() async {
       try {
         final File tempFile = File(image.path);
-        // Peso original directo de la cámara
         final double sizeInMbOriginal = tempFile.lengthSync() / (1024 * 1024);
         final String weightLogOriginal = "${sizeInMbOriginal.toStringAsFixed(2)}MB";
 
@@ -232,46 +231,37 @@ class _CameraScreenState extends State<CameraScreen> {
         final String cleanPath = '$originalsDir/LIMPIA_$ts.jpg';
         final String auditPath = '$facesDir/MARCOS_$ts.jpg';
 
-        // DETECCIÓN (Sobre la original RAW para máxima precisión de la IA)
-        // DETECCIÓN (Sobre la original RAW para máxima precisión de la IA)
         final List<Face> allFaces = await _faceDetector.processImage(InputImage.fromFile(tempFile));
 
-        // 🛡️ FILTRO DE ÁNGULO Y DISTANCIA (ESCUDO TOTAL)
         final List<Face> validFaces = [];
         for (Face face in allFaces) {
-
-          // 1. FILTRO DE DISTANCIA: Si la cara mide menos de 150 píxeles de ancho, está muy lejos.
           if (face.boundingBox.width < 75) {
-            debugPrint("❌ Rostro descartado: Demasiado lejos (${face.boundingBox.width}px de ancho)");
-            continue; // Salta al siguiente rostro sin evaluarlo
+            continue;
           }
 
-          // 2. FILTRO DE ÁNGULO (El que ya teníamos)
           if (face.headEulerAngleY != null && face.headEulerAngleY!.abs() < 35.0) {
             validFaces.add(face);
-          } else {
-            debugPrint("❌ Rostro descartado: Mirando de lado (Ángulo Y: ${face.headEulerAngleY})");
           }
         }
 
-        // ✅ MANDAMOS AL ISOLATE A QUE REDIMENSIONE Y GUARDE AMBOS ARCHIVOS
         final resultAudit = await compute(_isolateAuditPipeline, {
           'rawPath': tempFile.path,
           'cleanSavePath': cleanPath,
           'auditSavePath': auditPath,
           'targetArea': _selectedPixels,
           'faces': validFaces.map((f) {
-            double uniqueConfidence = 0.88 + (Random().nextDouble() * 0.11);
             return {
-              'left': f.boundingBox.left, 'top': f.boundingBox.top,
-              'right': f.boundingBox.right, 'bottom': f.boundingBox.bottom,
-              'confidence': uniqueConfidence,
+              'left': f.boundingBox.left,
+              'top': f.boundingBox.top,
+              'right': f.boundingBox.right,
+              'bottom': f.boundingBox.bottom,
+              'angleY': f.headEulerAngleY ?? 0.0,
+              'faceWidth': f.boundingBox.width,
             };
           }).toList(),
         });
 
         if (resultAudit != null) {
-          // REGISTRO EN DB (Garantizamos que el archivo ya existe físicamente)
           final int photoId = await LocalDBService.instance.insertPhoto({
             'hash_photo': resultAudit['cleanHash'],
             'event_id': 1,
@@ -286,12 +276,16 @@ class _CameraScreenState extends State<CameraScreen> {
             'status': 'pending',
           });
 
-          // Mostramos la resolución real lograda y el nuevo peso comprimido
           final String finalRes = resultAudit['final_resolution'];
           final String finalWeight = resultAudit['cleanSizeMb'] + "MB";
 
-          // Línea limpia y certera para Gregorio:
-          await LogService.write("Foto #$photoId | Caras: ${validFaces.length} | Resolución: $finalRes | Peso de Subida: $finalWeight");
+          String telemetryLog = validFaces.isEmpty
+              ? "Sin datos"
+              : validFaces.map((f) {
+            return "[Ang: ${f.headEulerAngleY?.abs().toStringAsFixed(1)}° | ${f.boundingBox.width.toInt()}px]";
+          }).join(", ");
+
+          await LogService.write("Foto #$photoId | Caras: ${validFaces.length} | Detalles: $telemetryLog | Res: $finalRes | Peso: $finalWeight");
         }
       } catch (e) {
         await LogService.write("🚨 Error background: $e");
@@ -318,122 +312,180 @@ class _CameraScreenState extends State<CameraScreen> {
     super.dispose();
   }
 
+  // ✅ NUEVO: Interfaz inmersiva a pantalla completa usando Stack
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        leading: IconButton(
-          icon: const Icon(Icons.add_circle_outline, color: Colors.white, size: 28),
-          onPressed: _isProcessing ? null : _showImportMenu,
-        ),
-        title: RichText(
-          text: const TextSpan(
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            children: [
-              TextSpan(text: 'Pic', style: TextStyle(color: Colors.white)),
-              TextSpan(text: 'Me', style: TextStyle(color: Colors.red)),
-              TextSpan(text: 'Run', style: TextStyle(color: Colors.white)),
-            ],
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.terminal, color: Colors.white),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const LogViewScreen())),
-          ),
-          IconButton(
-            icon: const Icon(Icons.cloud_upload_outlined, color: Colors.white),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const QueueScreen())),
-          ),
-        ],
-      ),
-      body: Column(
+      backgroundColor: Colors.black, // Fondo negro por si la cámara tarda en cargar
+      // Eliminamos el AppBar tradicional
+      body: Stack(
+        fit: StackFit.expand, // Expande los elementos de la pila a toda la pantalla
         children: [
-          Expanded(
-            child: _isChangingCamera
-                ? const Center(child: CircularProgressIndicator(color: Colors.white))
-                : FutureBuilder<void>(
-              future: _initializeControllerFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.done && _controller.value.isInitialized) {
-                  return LayoutBuilder(builder: (context, constraints) {
-                    return GestureDetector(
-                      onTapDown: (details) => _handleTapToFocus(details, constraints),
-                      onScaleStart: (details) => _baseZoomLevel = _currentZoomLevel,
-                      onScaleUpdate: (details) {
-                        double zoom = _baseZoomLevel * details.scale;
-                        if (zoom < _minAvailableZoom) zoom = _minAvailableZoom;
-                        if (zoom > _maxAvailableZoom) zoom = _maxAvailableZoom;
-                        if (zoom > 8.0) zoom = 8.0;
-                        setState(() => _currentZoomLevel = zoom);
-                        _controller.setZoomLevel(zoom);
-                      },
-                      child: Stack(
-                        children: [
-                          CameraPreview(_controller),
-                          if (_focusPoint != null)
-                            Positioned(
-                              left: _focusPoint!.dx - 25,
-                              top: _focusPoint!.dy - 25,
-                              child: Container(
-                                width: 50, height: 50,
-                                decoration: BoxDecoration(border: Border.all(color: Colors.white, width: 2), shape: BoxShape.circle),
-                              ),
+
+          // 1. CAPA DE FONDO: LA CÁMARA
+          _isChangingCamera
+              ? const Center(child: CircularProgressIndicator(color: Colors.white))
+              : FutureBuilder<void>(
+            future: _initializeControllerFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.done && _controller.value.isInitialized) {
+                return LayoutBuilder(builder: (context, constraints) {
+                  return GestureDetector(
+                    onTapDown: (details) => _handleTapToFocus(details, constraints),
+                    onScaleStart: (details) => _baseZoomLevel = _currentZoomLevel,
+                    onScaleUpdate: (details) {
+                      double zoom = _baseZoomLevel * details.scale;
+                      if (zoom < _minAvailableZoom) zoom = _minAvailableZoom;
+                      if (zoom > _maxAvailableZoom) zoom = _maxAvailableZoom;
+                      if (zoom > 8.0) zoom = 8.0;
+                      setState(() => _currentZoomLevel = zoom);
+                      _controller.setZoomLevel(zoom);
+                    },
+                    child: Stack(
+                      children: [
+                        // Aseguramos que la vista previa ocupe todo el fondo
+                        SizedBox.expand(child: CameraPreview(_controller)),
+                        if (_focusPoint != null)
+                          Positioned(
+                            left: _focusPoint!.dx - 25,
+                            top: _focusPoint!.dy - 25,
+                            child: Container(
+                              width: 50, height: 50,
+                              decoration: BoxDecoration(border: Border.all(color: Colors.white, width: 2), shape: BoxShape.circle),
                             ),
-                        ],
+                          ),
+                      ],
+                    ),
+                  );
+                });
+              }
+              return const Center(child: CircularProgressIndicator(color: Colors.white));
+            },
+          ),
+
+          // 2. CAPA SUPERIOR: BOTONES FLOTANTES DE ARRIBA (Reemplaza el AppBar)
+          Positioned(
+            top: 0, left: 0, right: 0,
+            child: SafeArea( // Protege de los bordes del teléfono (notch)
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Botón Importar
+                    Container(
+                      decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                      child: IconButton(
+                        icon: const Icon(Icons.add_circle_outline, color: Colors.white, size: 28),
+                        onPressed: _isProcessing ? null : _showImportMenu,
                       ),
-                    );
-                  });
-                }
-                return const Center(child: CircularProgressIndicator(color: Colors.white));
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: SegmentedButton<double>(
-              style: SegmentedButton.styleFrom(
-                backgroundColor: Colors.grey[900],
-                selectedBackgroundColor: Colors.red,
-                selectedForegroundColor: Colors.white,
-                foregroundColor: Colors.grey[400],
+                    ),
+
+                    // Título Flotante
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+                      child: RichText(
+                        text: const TextSpan(
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          children: [
+                            TextSpan(text: 'Pic', style: TextStyle(color: Colors.white)),
+                            TextSpan(text: 'Me', style: TextStyle(color: Colors.red)),
+                            TextSpan(text: 'Run', style: TextStyle(color: Colors.white)),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Botones Logs y Nube
+                    Row(
+                      children: [
+                        Container(
+                          decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                          child: IconButton(
+                            icon: const Icon(Icons.terminal, color: Colors.white),
+                            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const LogViewScreen())),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                          child: IconButton(
+                            icon: const Icon(Icons.cloud_upload_outlined, color: Colors.white),
+                            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const QueueScreen())),
+                          ),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
               ),
-              segments: const [
-                ButtonSegment(value: 1400.0, label: Text("1400px")),
-                ButtonSegment(value: 1600.0, label: Text("1600px")),
-                ButtonSegment(value: 1700.0, label: Text("1700px")),
-              ],
-              selected: {_selectedPixels},
-              onSelectionChanged: (newSelection) => setState(() => _selectedPixels = newSelection.first),
             ),
           ),
-          Container(
-            padding: const EdgeInsets.only(bottom: 30, top: 10),
-            color: Colors.black,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                IconButton(
-                    icon: const Icon(Icons.collections, color: Colors.white, size: 30),
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const InternalGalleryScreen()))
-                ),
-                GestureDetector(
-                  onLongPress: _takeBurst,
-                  child: FloatingActionButton(
-                      onPressed: _takePicture,
-                      backgroundColor: _isBursting ? Colors.orange : Colors.white,
-                      child: _isProcessing || _isBursting
-                          ? const SizedBox(width: 25, height: 25, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 3))
-                          : const Icon(Icons.camera_alt, color: Colors.black, size: 30)
+
+          // 3. CAPA INFERIOR: BOTONES FLOTANTES DE ABAJO
+          Positioned(
+            bottom: 0, left: 0, right: 0,
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Selector de Resoluciones (Actualizado a 1800, 2100, 2400)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: SegmentedButton<double>(
+                      style: SegmentedButton.styleFrom(
+                        backgroundColor: Colors.black54, // Cristal ahumado
+                        selectedBackgroundColor: Colors.red,
+                        selectedForegroundColor: Colors.white,
+                        foregroundColor: Colors.white,
+                      ),
+                      segments: const [
+                        ButtonSegment(value: 1800.0, label: Text("1800px")),
+                        ButtonSegment(value: 2100.0, label: Text("2100px")),
+                        ButtonSegment(value: 2400.0, label: Text("2400px")),
+                      ],
+                      selected: {_selectedPixels},
+                      onSelectionChanged: (newSelection) => setState(() => _selectedPixels = newSelection.first),
+                    ),
                   ),
-                ),
-                IconButton(
-                    icon: const Icon(Icons.flip_camera_android, color: Colors.white, size: 30),
-                    onPressed: _isProcessing || _isChangingCamera ? null : _toggleCamera
-                ),
-              ],
+
+                  // Controles de Cámara
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 20, top: 10),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        Container(
+                          decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                          child: IconButton(
+                              icon: const Icon(Icons.collections, color: Colors.white, size: 30),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const InternalGalleryScreen()))
+                          ),
+                        ),
+                        GestureDetector(
+                          onLongPress: _takeBurst,
+                          child: FloatingActionButton(
+                              onPressed: _takePicture,
+                              backgroundColor: _isBursting ? Colors.orange : Colors.white,
+                              elevation: 4,
+                              child: _isProcessing || _isBursting
+                                  ? const SizedBox(width: 25, height: 25, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 3))
+                                  : const Icon(Icons.camera_alt, color: Colors.black, size: 30)
+                          ),
+                        ),
+                        Container(
+                          decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                          child: IconButton(
+                              icon: const Icon(Icons.flip_camera_android, color: Colors.white, size: 30),
+                              onPressed: _isProcessing || _isChangingCamera ? null : _toggleCamera
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -442,7 +494,6 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-// ✅ ISOLATE MAESTRO: Redimensiona TODO (Limpia y Marcos) a la resolución elegida
 Future<Map<String, dynamic>?> _isolateAuditPipeline(Map<String, dynamic> data) async {
   try {
     final File rawFile = File(data['rawPath']);
@@ -450,25 +501,31 @@ Future<Map<String, dynamic>?> _isolateAuditPipeline(Map<String, dynamic> data) a
     img.Image? originalImage = img.decodeImage(bytes);
     if (originalImage == null) return null;
 
-    double originalWidth = originalImage.width.toDouble();
-    double targetWidth = data['targetArea'];
+    double origWidth = originalImage.width.toDouble();
+    double origHeight = originalImage.height.toDouble();
+    double longestSide = max(origWidth, origHeight); // Buscamos el lado más largo
+    double targetPixels = data['targetArea'];
     double scale = 1.0;
 
-    // 1. Redimensionar la imagen base (Aplica para Limpia y Marcos)
-    if (originalWidth > targetWidth) {
-      scale = targetWidth / originalWidth;
-      originalImage = img.copyResize(originalImage, width: targetWidth.toInt(), interpolation: img.Interpolation.linear);
+    // Si la foto no mide exactamente lo que pediste, la obligamos (encogiendo o estirando)
+    if (longestSide != targetPixels) {
+      scale = targetPixels / longestSide;
+      if (origWidth >= origHeight) {
+        // Si es Horizontal, clavamos el Ancho a tu objetivo
+        originalImage = img.copyResize(originalImage, width: targetPixels.toInt(), interpolation: img.Interpolation.linear);
+      } else {
+        // Si es Vertical, clavamos el Alto a tu objetivo
+        originalImage = img.copyResize(originalImage, height: targetPixels.toInt(), interpolation: img.Interpolation.linear);
+      }
     }
 
     final String finalResolution = "${originalImage.width}x${originalImage.height}";
 
-    // 2. Guardar la versión LIMPIA ya redimensionada al tamaño elegido (ej: 1400px)
     final String cleanSavePath = data['cleanSavePath'];
     final Uint8List cleanBytes = Uint8List.fromList(img.encodeJpg(originalImage, quality: 90));
     await File(cleanSavePath).writeAsBytes(cleanBytes);
     final String cleanHash = sha256.convert(cleanBytes).toString();
 
-    // 3. Dibujar Auditoría sobre la imagen que YA está redimensionada
     final img.BitmapFont font = img.arial48;
     final List<dynamic> faces = data['faces'];
 
@@ -478,18 +535,20 @@ Future<Map<String, dynamic>?> _isolateAuditPipeline(Map<String, dynamic> data) a
       int right = (face['right'] * scale).toInt();
       int bottom = (face['bottom'] * scale).toInt();
 
-      final double realConf = face['confidence'];
-      final double pseudoEmb = 0.745 + (Random().nextDouble() * 0.05);
+      final double angleY = (face['angleY'] as double).abs();
+      final double faceWidth = face['faceWidth'];
+
+      String textSize = "${faceWidth.toInt()}px";
+      String textAngle = "A: ${angleY.toStringAsFixed(1)}";
 
       img.drawRect(originalImage, x1: left, y1: top, x2: right, y2: bottom, color: img.ColorRgb8(0, 255, 0), thickness: 4);
-      img.drawString(originalImage, pseudoEmb.toStringAsFixed(3), font: font, x: left, y: top - 110, color: img.ColorRgb8(255, 0, 0));
-      img.drawString(originalImage, realConf.toStringAsFixed(3), font: font, x: right - 130, y: top - 55, color: img.ColorRgb8(0, 255, 0));
+      img.drawString(originalImage, textSize, font: font, x: left, y: top - 110, color: img.ColorRgb8(0, 255, 0));
+      img.drawString(originalImage, textAngle, font: font, x: left, y: top - 55, color: img.ColorRgb8(255, 50, 50));
     }
 
     String info = "${(cleanBytes.length / (1024 * 1024)).toStringAsFixed(2)}MB | $finalResolution";
     img.drawString(originalImage, info, font: font, x: originalImage.width - 650, y: originalImage.height - 70, color: img.ColorRgb8(0, 255, 0));
 
-    // 4. Guardar la versión MARCOS (Auditoría visual)
     final String auditSavePath = data['auditSavePath'];
     final Uint8List auditBytes = Uint8List.fromList(img.encodeJpg(originalImage, quality: 90));
     await File(auditSavePath).writeAsBytes(auditBytes);
