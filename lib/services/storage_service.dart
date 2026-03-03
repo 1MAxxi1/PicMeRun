@@ -1,3 +1,6 @@
+// Propósito: El bibliotecario de Android. Sabe exactamente en qué carpetas físicas
+// del celular se guardan las fotos originales y las fotos con marcos de auditoría.
+
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
@@ -19,7 +22,7 @@ class StorageService {
       await Directory(pathOriginals).create(recursive: true);
       await Directory(pathFaces).create(recursive: true);
 
-      print("✅ Carpetas creadas en: ${directory.path}");
+      print(" Carpetas creadas en: ${directory.path}");
     }
   }
 

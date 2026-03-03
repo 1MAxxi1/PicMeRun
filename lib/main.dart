@@ -1,5 +1,8 @@
+// Propósito: El punto de entrada principal de la app. Enciende los motores,
+// inicializa la base de datos y lanza la interfaz de usuario.
+
 import 'package:picmerun/services/face_service.dart';
-import 'package:picmerun/services/storage_service.dart'; // ✅ Importamos el nuevo servicio
+import 'package:picmerun/services/storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:picmerun/screens/camera_screen.dart';
@@ -8,19 +11,19 @@ Future<void> main() async {
   // Asegura que los bindings de Flutter estén listos
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ 1. Inicializamos las carpetas de las galerías en el almacenamiento
+  //  1. Inicializamos las carpetas de las galerías en el almacenamiento
   final storage = StorageService();
   await storage.initStorage();
 
-  // ✅ 2. Cargamos el modelo de IA para detección de rostros
+  //  2. Cargamos el modelo de IA para detección de rostros
   await FaceService().loadModel();
 
-  // ✅ 3. Detectamos las cámaras disponibles en el moto g35
+  //  3. Detectamos las cámaras disponibles en el moto g35
   List<CameraDescription> cameras = [];
   try {
     cameras = await availableCameras();
   } catch (e) {
-    debugPrint("⚠️ No se detectaron cámaras: $e");
+    debugPrint(" No se detectaron cámaras: $e");
   }
 
   runApp(PicMeRunApp(cameras: cameras));

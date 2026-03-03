@@ -1,3 +1,6 @@
+// Propósito: El "Laboratorio de Revelado". Un conjunto de herramientas puras para
+// manipular píxeles: recortar imágenes, forzar resoluciones Ultra (1800, 2100, 2400) y comprimir archivos.
+
 import 'dart:ui';
 import 'dart:io';
 import 'dart:typed_data';

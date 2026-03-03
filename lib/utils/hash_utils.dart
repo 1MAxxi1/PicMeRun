@@ -1,3 +1,6 @@
+// Propósito: El "Notario Digital". Se encarga de la criptografía (generar códigos SHA-256)
+// creando firmas únicas e irrepetibles para cada foto, garantizando que no haya nombres duplicados en la nube.
+
 import 'dart:io';
 import 'package:crypto/crypto.dart'; // Librería de criptografía
 

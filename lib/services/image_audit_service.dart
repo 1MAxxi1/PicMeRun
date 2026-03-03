@@ -1,3 +1,7 @@
+// Propósito: El "Matemático" que trabaja en las sombras (Isolate). Recorta
+// las fotos a resoluciones exactas (ej. 2400px) y dibuja la telemetría verde sobre ellas
+// sin congelar la pantalla.
+
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
@@ -5,7 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'dart:math';
 
 class ImageAuditService {
-  // ✅ ISOLATE MAESTRO: Dibuja la telemetría real sobre la imagen de auditoría
+  //  ISOLATE MAESTRO: Dibuja la telemetría real sobre la imagen de auditoría
   // Al ser estática, se puede llamar desde cualquier parte sin instanciar la clase
   static Future<Map<String, dynamic>?> isolateAuditPipeline(Map<String, dynamic> data) async {
     try {

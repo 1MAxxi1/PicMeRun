@@ -1,7 +1,6 @@
-// Propósito: Gestión de cámara con aislamiento total de archivos y optimización de peso.
-// 1. Cola de Envío: Recibe la captura redimensionada y limpia (ahorro de datos).
-// 2. Galería PicMeRun-Caras: Recibe la versión redimensionada con auditoría visual.
-// 3. Importación: Permite inyectar fotos de la galería o múltiples archivos (Drive) para testing.
+// Propósito: La vista inmersiva de la cámara. Su único trabajo es dibujar los
+// botones, mostrar lo que ve el lente de hardware y avisarle a los servicios cuando el
+// usuario presiona el disparador.
 
 import 'dart:io';
 import 'package:camera/camera.dart';

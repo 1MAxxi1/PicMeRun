@@ -1,9 +1,12 @@
+// Propósito: La sala de espera. Muestra la lista visual de las fotos que
+// están haciendo fila para irse a la nube de Cloudflare.
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:picmerun/widgets/queue_item_card.dart';
 import 'package:picmerun/theme/app_theme.dart';
 import 'package:picmerun/utils/ui_helpers.dart';
-import 'package:picmerun/controllers/queue_controller.dart'; // ✅ IMPORTAMOS EL NUEVO CEREBRO
+import 'package:picmerun/controllers/queue_controller.dart';
 
 class QueueScreen extends StatefulWidget {
   const QueueScreen({super.key});
@@ -15,7 +18,7 @@ class QueueScreen extends StatefulWidget {
 class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  // 🧠 INSTANCIAMOS EL CONTROLADOR (El Cerebro)
+  // INSTANCIAMOS EL CONTROLADOR (El Cerebro)
   final QueueController _controller = QueueController();
 
   @override
@@ -37,7 +40,7 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    // 🪄 MAGIA: ListenableBuilder escucha al controlador y redibuja la UI automáticamente
+    // MAGIA: ListenableBuilder escucha al controlador y redibuja la UI automáticamente
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, child) {
@@ -48,7 +51,7 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
             backgroundColor: AppTheme.backgroundDark,
             leading: IconButton(
               icon: const Icon(Icons.close, color: Colors.white),
-              // 🗣️ La pantalla no piensa, solo le avisa al controlador
+              // La pantalla no piensa, solo le avisa al controlador
               onPressed: _controller.clearSelection,
             ),
             title: Text("${_controller.selectedIds.length} seleccionadas",
@@ -110,7 +113,7 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
                 ? const NeverScrollableScrollPhysics()
                 : const ScrollPhysics(),
             children: [
-              // 🗣️ La UI le pregunta al controlador en qué estado estamos
+              // La UI le pregunta al controlador en qué estado estamos
               _controller.isSyncing
                   ? _buildSyncingState()
                   : (_controller.pendingTorsos.isEmpty

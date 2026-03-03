@@ -1,3 +1,6 @@
+// Propósito: El especialista en biometría. Carga los modelos matemáticos
+// necesarios para que la inteligencia artificial pueda analizar rostros.
+
 import 'dart:math';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
@@ -9,23 +12,23 @@ class FaceService {
 
   Interpreter? _interpreter;
 
-  // ✅ Carga del modelo MobileFaceNet para clustering
+  // Carga del modelo MobileFaceNet para clustering
   Future<void> loadModel() async {
     try {
       _interpreter = await Interpreter.fromAsset('assets/models/mobilefacenet.tflite');
-      print('✅ Modelo MobileFaceNet cargado correctamente.');
+      print('Modelo MobileFaceNet cargado correctamente.');
     } catch (e) {
-      print('❌ Error cargando el modelo: $e');
+      print('Error cargando el modelo: $e');
     }
   }
 
-  // ✅ FILTRO DE CALIDAD: Ajustado para corredores lejanos
+  // FILTRO DE CALIDAD: Ajustado para corredores lejanos
   bool isValidFace(img.Image faceImage) {
     // 1. Filtro de Tamaño: Bajamos de 80 a 40px para captar gente a lo lejos.
     // Un rostro de 40x40 en el moto g35 ya permite extraer rasgos básicos.
     if (faceImage.width < 80 || faceImage.height < 80) {
       // Log interno para depuración (opcional)
-      // print('⚠️ Rostro descartado: Muy pequeño (${faceImage.width}x${faceImage.height})');
+      // print(' Rostro descartado: Muy pequeño (${faceImage.width}x${faceImage.height})');
       return false;
     }
 
@@ -39,7 +42,7 @@ class FaceService {
     return true;
   }
 
-  // ✅ Generación de Face Embedding para reconocimiento
+  // Generación de Face Embedding para reconocimiento
   List<double> getFaceEmbedding(img.Image faceImage) {
     if (_interpreter == null) return [];
 
@@ -69,7 +72,7 @@ class FaceService {
     try {
       _interpreter!.run(input, output);
     } catch (e) {
-      print('❌ Error en inferencia TFLite: $e');
+      print(' Error en inferencia TFLite: $e');
       return [];
     }
 

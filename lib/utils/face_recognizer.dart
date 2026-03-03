@@ -1,3 +1,6 @@
+// Propósito: El "Detective Biométrico". Contiene la lógica matemática para
+// comparar distancias entre puntos del rostro y verificar si dos caras pertenecen a la misma persona.
+
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
@@ -29,12 +32,12 @@ class FaceRecognizer {
       var outputTensor = _interpreter!.getOutputTensor(0);
       outputSize = outputTensor.shape.last;
 
-      debugPrint("✅ CEREBRO IA: Modelo cargado correctamente.");
-      debugPrint("ℹ️ Input esperado: ${_interpreter!.getInputTensor(0).shape}");
-      debugPrint("ℹ️ Output detectado: $outputSize dimensiones");
+      debugPrint(" CEREBRO IA: Modelo cargado correctamente.");
+      debugPrint(" Input esperado: ${_interpreter!.getInputTensor(0).shape}");
+      debugPrint(" Output detectado: $outputSize dimensiones");
 
     } catch (e) {
-      debugPrint("❌ ERROR FATAL IA: No se pudo cargar el modelo.");
+      debugPrint(" ERROR FATAL IA: No se pudo cargar el modelo.");
       debugPrint("Detalles: $e");
     }
   }
@@ -42,7 +45,7 @@ class FaceRecognizer {
   /// 2. Procesa la imagen y devuelve el Vector (Embedding)
   List<double> extractEmbedding(Uint8List faceBytes) {
     if (_interpreter == null) {
-      debugPrint("⚠️ Advertencia: El modelo no está cargado.");
+      debugPrint(" Advertencia: El modelo no está cargado.");
       return [];
     }
 
@@ -75,7 +78,7 @@ class FaceRecognizer {
       return List<double>.from(outputTensor[0]);
 
     } catch (e) {
-      debugPrint("❌ Error al generar embedding: $e");
+      debugPrint(" Error al generar embedding: $e");
       return [];
     }
   }

@@ -1,4 +1,5 @@
-//log que esta en la camara principal
+// Propósito: La "Terminal" para el usuario. Muestra en pantalla un registro
+// de texto con todo lo que hace la app por debajo (auditoría, errores y éxitos).
 
 
 import 'package:flutter/material.dart';

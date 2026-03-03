@@ -1,3 +1,6 @@
+// Propósito: El administrador de SQLite. El único archivo autorizado para
+// escribir o leer tablas, insertar registros de fotos y manejar estados de la cola a nivel local.
+
 import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -10,7 +13,7 @@ class LocalDBService {
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    // ✅ Versión 5: Estructura relacional completa para PicMeRun
+    //  Versión 5: Estructura relacional completa para PicMeRun
     _database = await _initDB('picmerun_relational_final_v5.db');
     return _database!;
   }
@@ -24,7 +27,7 @@ class LocalDBService {
       version: 5,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
-      // ✅ Habilita el CASCADE y restricciones de llave foránea
+      //  Habilita el CASCADE y restricciones de llave foránea
       onConfigure: (db) async => await db.execute('PRAGMA foreign_keys = ON'),
     );
   }
@@ -145,7 +148,7 @@ class LocalDBService {
 
   // --- MÉTODOS DE ACTUALIZACIÓN ---
 
-  // ✅ NUEVO MÉTODO: Actualiza la ruta de la galería sin afectar la cola
+  //  NUEVO MÉTODO: Actualiza la ruta de la galería sin afectar la cola
   Future<int> updatePhotoPath(int id, String newPath) async {
     final db = await instance.database;
     return await db.update(

@@ -1,3 +1,6 @@
+// Propósito: El panel de control central. Aquí guardamos las variables globales, URLs del
+// servidor y configuraciones generales para no tenerlas dispersas por todo el código.
+
 class AppConfig {
   // --- 🌐 INFRAESTRUCTURA (Cloudflare) ---
 
@@ -15,26 +18,26 @@ class AppConfig {
 
   // --- 🤖 INTELIGENCIA ARTIFICIAL (ML Kit & Face Embeddings) ---
 
-  // ✅ CONFIDENCIALIDAD DE DETECCIÓN (Gregorio sugirió > 90%)
+  // CONFIDENCIALIDAD DE DETECCIÓN (Gregorio sugirió > 90%)
   // Si ML Kit está menos seguro que esto, la cara se ignora para evitar falsos positivos.
   static double faceDetectionThreshold = 0.75;
 
-  // ✅ TAMAÑO MÍNIMO DE CARA (Scale 0.0 a 1.0)
+  // TAMAÑO MÍNIMO DE CARA (Scale 0.0 a 1.0)
   // 0.1 significa que el rostro debe ocupar al menos el 10% de la imagen.
   // Ayuda a ignorar personas muy lejanas que saldrían pixeladas (Insight de Gregorio).
   static double minFaceSize = 0.1;
 
-  // ✅ UMBRAL DE SIMILITUD (Clustering)
+  // UMBRAL DE SIMILITUD (Clustering)
   // Define qué tan parecidos deben ser dos vectores para ser la misma persona.
   // 0.5 es el punto de partida; si crea muchas identidades del mismo, hay que bajarlo.
   static double identityMatchThreshold = 0.5;
 
-  // ✅ LÍMITE DE PROCESAMIENTO
+  // LÍMITE DE PROCESAMIENTO
   // Máximo de rostros a extraer por cada fotografía capturada o subida.
   static int maxFacesPerPhoto = 8;
 
 
-  // --- 🛠️ CONFIGURACIÓN DE UI/UX ---
+  // --- CONFIGURACIÓN DE UI/UX ---
 
   // Calidad de la imagen JPG al guardar (1-100)
   static int imageQuality = 85;

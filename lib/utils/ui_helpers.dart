@@ -1,10 +1,13 @@
+// Propósito: El constructor de pop-ups. Guarda los diseños de alertas, cuadros de
+// diálogo (ej. "¿Estás seguro de eliminar?") y mensajes flotantes (Snackbars) para reutilizarlos.
+
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:picmerun/theme/app_theme.dart';
 
 class UIHelpers {
 
-  // 💬 1. Snackbar Global (Para usar en toda la app)
+  //  1. Snackbar Global (Para usar en toda la app)
   static void showSnackBar(BuildContext context, String message, Color color) {
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
@@ -18,7 +21,7 @@ class UIHelpers {
     );
   }
 
-  // 🖼️ 2. Visor de Imágenes en Pantalla Completa
+  //  2. Visor de Imágenes en Pantalla Completa
   static void showImagePreview(BuildContext context, String imagePath) {
     showDialog(
       context: context,
@@ -44,7 +47,7 @@ class UIHelpers {
     );
   }
 
-  // 🗑️ 3. Confirmación de Borrado Inteligente
+  //  3. Confirmación de Borrado Inteligente
   static Future<bool> showDeleteConfirmDialog(BuildContext context, {bool isBulk = false, int count = 0}) async {
     return await showDialog<bool>(
       context: context,

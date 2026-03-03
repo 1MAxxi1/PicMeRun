@@ -1,3 +1,7 @@
+// Propósito: El "Director de Orquesta" de la foto. Cuando se toma una
+// imagen, este servicio activa la Inteligencia Artificial (Google ML Kit), filtra las
+// caras válidas y guarda todo en la base de datos
+
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -8,7 +12,7 @@ import 'package:picmerun/services/storage_service.dart';
 import 'package:picmerun/services/image_audit_service.dart';
 
 class CameraProcessingService {
-  // 🧠 Inicializamos la IA aquí adentro, protegiéndola de la interfaz gráfica
+  // Inicializamos la IA aquí adentro, protegiéndola de la interfaz gráfica
   static final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
       performanceMode: FaceDetectorMode.accurate,
@@ -18,7 +22,7 @@ class CameraProcessingService {
     ),
   );
 
-  // 🚀 El motor principal que procesa la foto en segundo plano
+  // El motor principal que procesa la foto en segundo plano
   static Future<void> processPhoto(XFile image, double selectedPixels) async {
     Future.microtask(() async {
       try {
@@ -92,12 +96,12 @@ class CameraProcessingService {
           await LogService.write("Foto #$photoId | Caras: ${validFaces.length} | Detalles: $telemetryLog | Res: $finalRes | Peso: $finalWeight");
         }
       } catch (e) {
-        await LogService.write("🚨 Error background: $e");
+        await LogService.write("Error background: $e");
       }
     });
   }
 
-  // 🧹 Limpiamos la memoria al cerrar
+  // Limpiamos la memoria al cerrar
   static void dispose() {
     _faceDetector.close();
   }

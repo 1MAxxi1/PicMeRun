@@ -1,12 +1,13 @@
-//log que esta en gestion de imagenes
+// Propósito: El "Escribano" de la app. Toma los mensajes de texto de cualquier
+// parte del sistema y los guarda en un archivo físico (.txt) para auditoría.
 
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:async'; // ✅ Necesario para el Completer
+import 'dart:async';
 
 class LogService {
-  // ✅ Lock para evitar escrituras simultáneas (Race Conditions)
+  //  Lock para evitar escrituras simultáneas (Race Conditions)
   static Completer<void>? _writingTask;
 
   static Future<File> get _localFile async {
@@ -20,7 +21,7 @@ class LogService {
     return File('${logDir.path}/app_logs.txt');
   }
 
-  // ✅ Escribe un mensaje de forma secuencial (Ideal para Ráfagas)
+  //  Escribe un mensaje de forma secuencial (Ideal para Ráfagas)
   static Future<void> write(String message) async {
     // Si hay una escritura en curso, esperamos a que termine
     while (_writingTask != null) {
@@ -40,7 +41,7 @@ class LogService {
     } catch (e) {
       debugPrint("Error escribiendo log: $e");
     } finally {
-      // ✅ Liberamos el lock para la siguiente foto de la ráfaga
+      //  Liberamos el lock para la siguiente foto de la ráfaga
       final task = _writingTask;
       _writingTask = null;
       task?.complete();

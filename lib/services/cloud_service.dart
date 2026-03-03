@@ -1,3 +1,6 @@
+// Propósito: Gestor general de la nube. Maneja las reglas de negocio y autenticación
+// para conectarse a los servidores externos.
+
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;

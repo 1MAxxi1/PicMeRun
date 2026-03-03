@@ -1,3 +1,6 @@
+// Propósito: El visor de pantalla completa. Permite ver una foto individual
+// en detalle, hacer zoom y ofrece la opción de eliminarla.
+
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
