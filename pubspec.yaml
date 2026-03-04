@@ -39,12 +39,21 @@ dev_dependencies:
   intl: ^0.19.0
   image_picker: ^1.0.7
   file_picker: ^8.0.0
+  #  NUEVA LIBRERÍA PARA EL LOGO
+  flutter_launcher_icons: ^0.13.1
 
-
+#  CONFIGURACIÓN DEL LOGO (PicMeRun Oficial)
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/app_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/app_icon.png"
 
 flutter:
   uses-material-design: true
 
-  # ✅ AQUÍ ESTÁ LA MAGIA: Le decimos a Flutter que empaquete el modelo de IA
+  #  Le decimos a Flutter que empaquete el modelo de IA y el logo
   assets:
     - assets/models/mobilefacenet.tflite
+    - assets/app_icon.png
