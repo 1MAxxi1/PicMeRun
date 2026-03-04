@@ -1,6 +1,5 @@
-// Propósito: La vista inmersiva de la cámara. Su único trabajo es dibujar los
-// botones, mostrar lo que ve el lente de hardware y avisarle a los servicios cuando el
-// usuario presiona el disparador.
+// Propósito: La vista inmersiva de la cámara con sistema de importación masiva
+// optimizado para estabilidad y feedback visual constante.
 
 import 'dart:io';
 import 'package:camera/camera.dart';
@@ -12,7 +11,7 @@ import 'package:picmerun/screens/internal_gallery_screen.dart';
 import 'package:picmerun/screens/log_view_screen.dart';
 import 'package:picmerun/services/face_service.dart';
 import 'package:picmerun/services/log_service.dart';
-import 'package:picmerun/services/camera_processing_service.dart'; // <-- El Nuevo Cerebro
+import 'package:picmerun/services/camera_processing_service.dart';
 
 class CameraScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -36,16 +35,17 @@ class _CameraScreenState extends State<CameraScreen> {
   double _maxAvailableZoom = 1.0;
   double _baseZoomLevel = 1.0;
 
-  // ✅ NUEVO: La resolución por defecto ahora es 1800
   double _selectedPixels = 1800.0;
   Offset? _focusPoint;
+
+  String _importProgress = "";
 
   @override
   void initState() {
     super.initState();
     _initCamera(_selectedCameraIndex);
     FaceService().loadModel();
-    LogService.write("🚀 Sesión v10.9 - Arquitectura Limpia (MVC) Activa.");
+    LogService.write("🚀 Sesión v11.0 - Optimización de Importación Masiva Activa.");
   }
 
   void _initCamera(int cameraIndex) {
@@ -63,8 +63,6 @@ class _CameraScreenState extends State<CameraScreen> {
       if (mounted) setState(() {});
     });
   }
-
-  // --- MENÚ DE IMPORTACIÓN ---
 
   void _showImportMenu() {
     showModalBottomSheet(
@@ -110,57 +108,93 @@ class _CameraScreenState extends State<CameraScreen> {
       final List<XFile> images = await picker.pickMultiImage();
 
       if (images.isNotEmpty) {
-        setState(() => _isProcessing = true);
-        await LogService.write("📸 Importando ${images.length} fotos de la Galería...");
+        setState(() {
+          _isProcessing = true;
+          _importProgress = "0 / ${images.length}";
+        });
+        await LogService.write("📸 Importación Galería: ${images.length} fotos.");
 
         int processedCount = 0;
         for (var image in images) {
-          _startBackgroundProcessing(image);
-          await Future.delayed(const Duration(milliseconds: 1500));
+          await CameraProcessingService.processPhoto(image, _selectedPixels);
           processedCount++;
+          if (mounted) setState(() => _importProgress = "$processedCount / ${images.length}");
+          await Future.delayed(const Duration(milliseconds: 100));
         }
-        await LogService.write("✅ Importación de Galería finalizada: $processedCount fotos procesadas.");
       }
     } catch (e) {
-      await LogService.write("🚨 Error importando de Galería: $e");
+      await LogService.write("🚨 Error Galería: $e");
     } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      if (mounted) setState(() { _isProcessing = false; _importProgress = ""; });
     }
   }
 
+  // ✅ IMPORTACIÓN MASIVA RE-POTENCIADA
   Future<void> _importMultiplePhotosForTesting() async {
     if (_isProcessing) return;
 
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      type: FileType.custom,
-      allowedExtensions: ['jpg', 'jpeg', 'png'],
-    );
-
-    if (result == null || result.files.isEmpty) return;
-
-    setState(() => _isProcessing = true);
-    await LogService.write("📂 Importando ${result.files.length} archivos (Drive/Carpetas)...");
+    setState(() {
+      _isProcessing = true;
+      _importProgress = "Descargando de Nube...";
+    });
 
     try {
+      // Limpiamos caché antes de empezar para liberar RAM
+      await FilePicker.platform.clearTemporaryFiles();
+
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png'],
+      );
+
+      if (result == null || result.files.isEmpty) {
+        setState(() { _isProcessing = false; _importProgress = ""; });
+        return;
+      }
+
+      await LogService.write("📂 Drive enganchado: ${result.files.length} archivos.");
+
       int processedCount = 0;
       for (var file in result.files) {
         if (file.path != null) {
-          final XFile xFile = XFile(file.path!);
-          _startBackgroundProcessing(xFile);
-          await Future.delayed(const Duration(milliseconds: 1500));
-          processedCount++;
+          final File checkFile = File(file.path!);
+
+          if (await checkFile.exists()) {
+            final XFile xFile = XFile(file.path!);
+            // Procesamos con el motor de IA
+            await CameraProcessingService.processPhoto(xFile, _selectedPixels);
+            processedCount++;
+
+            if (mounted) {
+              setState(() => _importProgress = "$processedCount / ${result.files.length}");
+            }
+          } else {
+            await LogService.write("🚨 Archivo saltado (No encontrado en caché): ${file.name}");
+          }
+
+          // Respirador dinámico: Un poco más largo para evitar OOM en lotes masivos
+          await Future.delayed(const Duration(milliseconds: 100));
         }
       }
-      await LogService.write("✅ Importación masiva finalizada: $processedCount archivos procesados.");
+
+      // Limpiamos caché al terminar para que el teléfono no quede pesado
+      await FilePicker.platform.clearTemporaryFiles();
+      await LogService.write("✅ Importación masiva completada.");
+
     } catch (e) {
-      await LogService.write("🚨 Error importando archivos: $e");
+      await LogService.write("🚨 Error crítico importación: $e");
     } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _importProgress = "";
+        });
+      }
     }
   }
 
-  // --- FLUJO CÁMARA Y PROCESAMIENTO ---
+  // --- FLUJO CÁMARA ---
 
   Future<void> _handleTapToFocus(TapDownDetails details, BoxConstraints constraints) async {
     if (_isChangingCamera) return;
@@ -174,12 +208,12 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _takeBurst() async {
     if (_isProcessing || _isChangingCamera || _isBursting) return;
     setState(() => _isBursting = true);
-    await LogService.write("🔥 RÁFAGA: Iniciada.");
+    await LogService.write("🔥 RÁFAGA iniciada.");
     for (int i = 0; i < 3; i++) {
       try {
         await _initializeControllerFuture;
         final XFile image = await _controller.takePicture();
-        _startBackgroundProcessing(image);
+        CameraProcessingService.processPhoto(image, _selectedPixels);
         await Future.delayed(const Duration(milliseconds: 150));
       } catch (e) { LogService.write("❌ Error ráfaga [$i]: $e"); }
     }
@@ -191,13 +225,8 @@ class _CameraScreenState extends State<CameraScreen> {
     try {
       await _initializeControllerFuture;
       final XFile image = await _controller.takePicture();
-      _startBackgroundProcessing(image);
+      CameraProcessingService.processPhoto(image, _selectedPixels);
     } catch (e) { LogService.write("❌ Error captura: $e"); }
-  }
-
-  // 🧠 ESTE ES EL GRAN CAMBIO: Derivamos todo el trabajo pesado al nuevo servicio
-  Future<void> _startBackgroundProcessing(XFile image) async {
-    await CameraProcessingService.processPhoto(image, _selectedPixels);
   }
 
   Future<void> _toggleCamera() async {
@@ -215,21 +244,18 @@ class _CameraScreenState extends State<CameraScreen> {
   @override
   void dispose() {
     _controller.dispose();
-    CameraProcessingService.dispose(); // <-- Usamos el servicio para cerrar la IA
+    CameraProcessingService.dispose();
     super.dispose();
   }
 
-  // ✅ NUEVO: Interfaz inmersiva a pantalla completa usando Stack
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // Fondo negro por si la cámara tarda en cargar
-      // Eliminamos el AppBar tradicional
+      backgroundColor: Colors.black,
       body: Stack(
-        fit: StackFit.expand, // Expande los elementos de la pila a toda la pantalla
+        fit: StackFit.expand,
         children: [
-
-          // 1. CAPA DE FONDO: LA CÁMARA
+          // 1. VISTA PREVIA CÁMARA
           _isChangingCamera
               ? const Center(child: CircularProgressIndicator(color: Colors.white))
               : FutureBuilder<void>(
@@ -250,7 +276,6 @@ class _CameraScreenState extends State<CameraScreen> {
                     },
                     child: Stack(
                       children: [
-                        // Aseguramos que la vista previa ocupe todo el fondo
                         SizedBox.expand(child: CameraPreview(_controller)),
                         if (_focusPoint != null)
                           Positioned(
@@ -270,16 +295,15 @@ class _CameraScreenState extends State<CameraScreen> {
             },
           ),
 
-          // 2. CAPA SUPERIOR: BOTONES FLOTANTES DE ARRIBA (Reemplaza el AppBar)
+          // 2. INTERFAZ SUPERIOR
           Positioned(
             top: 0, left: 0, right: 0,
-            child: SafeArea( // Protege de los bordes del teléfono (notch)
+            child: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Botón Importar
                     Container(
                       decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
                       child: IconButton(
@@ -287,8 +311,6 @@ class _CameraScreenState extends State<CameraScreen> {
                         onPressed: _isProcessing ? null : _showImportMenu,
                       ),
                     ),
-
-                    // Título Flotante
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
@@ -303,8 +325,6 @@ class _CameraScreenState extends State<CameraScreen> {
                         ),
                       ),
                     ),
-
-                    // Botones Logs y Nube
                     Row(
                       children: [
                         Container(
@@ -330,19 +350,46 @@ class _CameraScreenState extends State<CameraScreen> {
             ),
           ),
 
-          // 3. CAPA INFERIOR: BOTONES FLOTANTES DE ABAJO
+          // ✅ INDICADOR DE PROGRESO PREMIUM
+          if (_isProcessing)
+            Positioned(
+              top: 100, left: 0, right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.black87,
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: Colors.redAccent, width: 2),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10)],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.redAccent, strokeWidth: 2)),
+                      const SizedBox(width: 15),
+                      Text(
+                        _importProgress.isEmpty ? "Conectando..." : "Procesando: $_importProgress",
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // 3. CONTROLES INFERIORES
           Positioned(
             bottom: 0, left: 0, right: 0,
             child: SafeArea(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Selector de Resoluciones (Actualizado a 1800, 2100, 2400)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     child: SegmentedButton<double>(
                       style: SegmentedButton.styleFrom(
-                        backgroundColor: Colors.black54, // Cristal ahumado
+                        backgroundColor: Colors.black54,
                         selectedBackgroundColor: Colors.red,
                         selectedForegroundColor: Colors.white,
                         foregroundColor: Colors.white,
@@ -356,8 +403,6 @@ class _CameraScreenState extends State<CameraScreen> {
                       onSelectionChanged: (newSelection) => setState(() => _selectedPixels = newSelection.first),
                     ),
                   ),
-
-                  // Controles de Cámara
                   Padding(
                     padding: const EdgeInsets.only(bottom: 20, top: 10),
                     child: Row(

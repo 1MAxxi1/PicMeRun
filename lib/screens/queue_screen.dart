@@ -1,5 +1,5 @@
 // Propósito: La sala de espera. Muestra la lista visual de las fotos que
-// están haciendo fila para irse a la nube de Cloudflare.
+// están haciendo fila para irse a la nube de Cloudflare y la auditoría.
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +7,7 @@ import 'package:picmerun/widgets/queue_item_card.dart';
 import 'package:picmerun/theme/app_theme.dart';
 import 'package:picmerun/utils/ui_helpers.dart';
 import 'package:picmerun/controllers/queue_controller.dart';
+import 'package:picmerun/screens/log_view_screen.dart'; // <-- ✅ IMPORTAMOS EL NUEVO PANEL DE LOGS
 
 class QueueScreen extends StatefulWidget {
   const QueueScreen({super.key});
@@ -24,8 +25,9 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
+    // ✅ FIX: Le pasamos 'this' como vsync
     _tabController = TabController(length: 2, vsync: this);
-    // Un pequeño truco Senior: Escuchamos si cambias de pestaña para actualizar la barra de arriba
+    // Escuchamos si cambias de pestaña para actualizar la barra de arriba
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -34,13 +36,12 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
   @override
   void dispose() {
     _tabController.dispose();
-    _controller.dispose(); // 🧹 Limpiamos la memoria al salir de la pantalla
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // MAGIA: ListenableBuilder escucha al controlador y redibuja la UI automáticamente
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, child) {
@@ -51,7 +52,6 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
             backgroundColor: AppTheme.backgroundDark,
             leading: IconButton(
               icon: const Icon(Icons.close, color: Colors.white),
-              // La pantalla no piensa, solo le avisa al controlador
               onPressed: _controller.clearSelection,
             ),
             title: Text("${_controller.selectedIds.length} seleccionadas",
@@ -90,6 +90,7 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
               ],
             ),
             actions: [
+              // Solo mostramos el botón de Subir a la Nube si estamos en la pestaña 0 (Cola)
               if (!_controller.isSyncing && _controller.pendingTorsos.isNotEmpty &&
                   _tabController.index == 0)
                 Padding(
@@ -100,11 +101,9 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
                     onPressed: () => _controller.handleSync(context),
                   ),
                 ),
-              if (_tabController.index == 1)
-                IconButton(
-                  icon: const Icon(Icons.delete_sweep_outlined, color: AppTheme.error),
-                  onPressed: _controller.clearAuditLogs,
-                )
+
+              // ✅ ELIMINAMOS el botón de borrar logs viejo de aquí,
+              // porque la nueva LogViewScreen ya trae su propio botón de limpiar.
             ],
           ),
           body: TabBarView(
@@ -113,13 +112,14 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
                 ? const NeverScrollableScrollPhysics()
                 : const ScrollPhysics(),
             children: [
-              // La UI le pregunta al controlador en qué estado estamos
               _controller.isSyncing
                   ? _buildSyncingState()
                   : (_controller.pendingTorsos.isEmpty
                   ? _buildEmptyState()
                   : _buildQueueList()),
-              _buildAuditDashboard(),
+
+              // ✅ INCRUSTACIÓN: Llamamos al panel profesional en lugar del texto viejo
+              const LogViewScreen(),
             ],
           ),
         );
@@ -137,7 +137,13 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
 
         final String displayPath = item['torso_image_url'] ?? item['file_url'];
         final int photoId = item['photo_id'];
-        DateTime date = DateTime.tryParse(item['created_at']) ?? DateTime.now();
+
+        String dateString = item['created_at'] ?? '';
+        if (dateString.isNotEmpty && !dateString.contains('Z')) {
+          dateString = dateString.replaceAll(' ', 'T') + 'Z';
+        }
+
+        DateTime date = DateTime.tryParse(dateString)?.toLocal() ?? DateTime.now();
         String hora = DateFormat('HH:mm').format(date);
 
         final bool isSelected = _controller.selectedIds.contains(photoId);
@@ -162,34 +168,6 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
           },
         );
       },
-    );
-  }
-
-  Widget _buildAuditDashboard() {
-    return Container(
-      color: AppTheme.terminalBackground,
-      width: double.infinity,
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "--- INFORMACIÓN DE LAS IMÁGENES ---",
-            style: AppTheme.terminalTitleStyle,
-          ),
-          const SizedBox(height: 10),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Text(
-                _controller.logContent.isEmpty
-                    ? "No hay registros disponibles."
-                    : _controller.logContent,
-                style: AppTheme.terminalStyle,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

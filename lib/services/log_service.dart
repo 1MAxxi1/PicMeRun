@@ -21,7 +21,7 @@ class LogService {
     return File('${logDir.path}/app_logs.txt');
   }
 
-  //  Escribe un mensaje de forma secuencial (Ideal para Ráfagas)
+  // ✍ Escribe un mensaje de forma secuencial (Ideal para Ráfagas)
   static Future<void> write(String message) async {
     // Si hay una escritura en curso, esperamos a que termine
     while (_writingTask != null) {
@@ -48,6 +48,7 @@ class LogService {
     }
   }
 
+  //  Mantenemos tu método original intacto
   static Future<String> getLogs() async {
     try {
       final file = await _localFile;
@@ -61,6 +62,7 @@ class LogService {
     }
   }
 
+  //  Mantenemos tu método original intacto
   static Future<void> clear() async {
     try {
       final file = await _localFile;
@@ -71,5 +73,19 @@ class LogService {
     } catch (e) {
       debugPrint("Error al limpiar logs: $e");
     }
+  }
+
+  // ====================================================================
+  // ✅ NUEVOS PUENTES PARA EL DASHBOARD:
+  // Redirigen a tus métodos originales para que la nueva pantalla
+  // funcione sin romper ninguna otra parte de tu código antiguo.
+  // ====================================================================
+
+  static Future<String> readLogs() async {
+    return await getLogs();
+  }
+
+  static Future<void> clearLogs() async {
+    return await clear();
   }
 }
