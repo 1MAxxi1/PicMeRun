@@ -76,7 +76,7 @@ class LogService {
   }
 
   // ====================================================================
-  // ✅ NUEVOS PUENTES PARA EL DASHBOARD:
+  //  NUEVOS PUENTES PARA EL DASHBOARD:
   // Redirigen a tus métodos originales para que la nueva pantalla
   // funcione sin romper ninguna otra parte de tu código antiguo.
   // ====================================================================

@@ -45,7 +45,7 @@ class _CameraScreenState extends State<CameraScreen> {
     super.initState();
     _initCamera(_selectedCameraIndex);
     FaceService().loadModel();
-    LogService.write("🚀 Sesión v11.0 - Optimización de Importación Masiva Activa.");
+    LogService.write("🚀 PicMeRun 2.1.");
   }
 
   void _initCamera(int cameraIndex) {
@@ -112,7 +112,7 @@ class _CameraScreenState extends State<CameraScreen> {
           _isProcessing = true;
           _importProgress = "0 / ${images.length}";
         });
-        await LogService.write("📸 Importación Galería: ${images.length} fotos.");
+        await LogService.write("Importación Galería: ${images.length} fotos.");
 
         int processedCount = 0;
         for (var image in images) {
@@ -123,13 +123,13 @@ class _CameraScreenState extends State<CameraScreen> {
         }
       }
     } catch (e) {
-      await LogService.write("🚨 Error Galería: $e");
+      await LogService.write("Error Galería: $e");
     } finally {
       if (mounted) setState(() { _isProcessing = false; _importProgress = ""; });
     }
   }
 
-  // ✅ IMPORTACIÓN MASIVA RE-POTENCIADA
+  //  IMPORTACIÓN MASIVA RE-POTENCIADA
   Future<void> _importMultiplePhotosForTesting() async {
     if (_isProcessing) return;
 
@@ -153,7 +153,7 @@ class _CameraScreenState extends State<CameraScreen> {
         return;
       }
 
-      await LogService.write("📂 Drive enganchado: ${result.files.length} archivos.");
+      await LogService.write(" Drive enganchado: ${result.files.length} archivos.");
 
       int processedCount = 0;
       for (var file in result.files) {
@@ -170,7 +170,7 @@ class _CameraScreenState extends State<CameraScreen> {
               setState(() => _importProgress = "$processedCount / ${result.files.length}");
             }
           } else {
-            await LogService.write("🚨 Archivo saltado (No encontrado en caché): ${file.name}");
+            await LogService.write(" Archivo saltado (No encontrado en caché): ${file.name}");
           }
 
           // Respirador dinámico: Un poco más largo para evitar OOM en lotes masivos
@@ -180,10 +180,10 @@ class _CameraScreenState extends State<CameraScreen> {
 
       // Limpiamos caché al terminar para que el teléfono no quede pesado
       await FilePicker.platform.clearTemporaryFiles();
-      await LogService.write("✅ Importación masiva completada.");
+      await LogService.write(" Importación masiva completada.");
 
     } catch (e) {
-      await LogService.write("🚨 Error crítico importación: $e");
+      await LogService.write(" Error crítico importación: $e");
     } finally {
       if (mounted) {
         setState(() {

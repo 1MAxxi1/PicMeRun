@@ -38,14 +38,14 @@ class _LogViewScreenState extends State<LogViewScreen> {
       });
     } catch (e) {
       setState(() {
-        _allLogs = ["🚨 Error al leer los logs: $e"];
+        _allLogs = [" Error al leer los logs: $e"];
         _filteredLogs = _allLogs;
         _isLoading = false;
       });
     }
   }
 
-  // 🧠 El Motor de Búsqueda Binario
+  //  El Motor de Búsqueda Binario
   void _filterLogs(String filter) {
     setState(() {
       _currentFilter = filter;
@@ -65,12 +65,12 @@ class _LogViewScreenState extends State<LogViewScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("🗑️ Terminal limpiada"), backgroundColor: Colors.green, duration: Duration(seconds: 1)),
+        const SnackBar(content: Text(" Terminal limpiada"), backgroundColor: Colors.green, duration: Duration(seconds: 1)),
       );
     }
   }
 
-  // 🎨 Diseño de los 2 Botones Gigantes Superiores
+  //  Diseño de los 2 Botones Gigantes Superiores
   Widget _buildFilterButton(String label, IconData icon) {
     final bool isSelected = _currentFilter == label;
     return Expanded(
@@ -107,7 +107,7 @@ class _LogViewScreenState extends State<LogViewScreen> {
     );
   }
 
-  // 📦 El Formateador Inteligente de Recuadros (Extractor Regex)
+  //  El Formateador Inteligente de Recuadros (Extractor Regex)
   Widget _buildLogCard(String log) {
     // 1. RECUADRO DE ERRORES (Rojo)
     if (log.contains('🚨') || log.toLowerCase().contains('error')) {
