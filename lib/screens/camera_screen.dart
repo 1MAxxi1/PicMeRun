@@ -134,8 +134,14 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _importMultiplePhotosForTesting() async {
     if (_isProcessing) return;
 
+    // 🚀 1. ENCENDEMOS EL LETRERO: Avisamos que Drive está trabajando
+    setState(() {
+      _isProcessing = true;
+      _importProgress = "Descargando desde Drive...";
+    });
+
     try {
-      // 1. Selección de archivos (Directo al grano)
+      // Selección y descarga de archivos (Aquí es donde el Moto G35 se toma su tiempo)
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         type: FileType.custom,
@@ -151,22 +157,30 @@ class _CameraScreenState extends State<CameraScreen> {
           .toList();
 
       if (paths.isNotEmpty) {
-        // Anotamos en nuestro "Redis" (SQLite)
+        // Cambiamos el mensaje rápido
+        setState(() => _importProgress = "Encolando ${paths.length} fotos...");
+
         await LocalDBService.instance.enqueueImportTasks(paths);
         await LogService.write("📂 Drive/Explorador: ${paths.length} fotos encoladas.");
 
-        // 3. FRENO DE SEGURIDAD (Para que SQLite asiente los datos)
         await Future.delayed(const Duration(milliseconds: 500));
 
-        // 4. Activamos al "Obrero" (Worker)
         ImportWorkerService.instance.startProcessing(_selectedPixels);
 
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("🚀 Procesando ${paths.length} archivos de Drive en segundo plano..."))
+            SnackBar(content: Text("🚀 Procesando ${paths.length} archivos en segundo plano..."))
         );
       }
     } catch (e) {
       await LogService.write("❌ Error en selector de archivos: $e");
+    } finally {
+      // 🚀 3. APAGAMOS EL LETRERO: La descarga terminó, ahora el StreamBuilder toma el control
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _importProgress = "";
+        });
+      }
     }
   }
 
@@ -182,27 +196,42 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _takeBurst() async {
-    if (_isProcessing || _isChangingCamera || _isBursting) return;
+    // 🚀 Quitamos _isProcessing para que pueda disparar siempre
+    if (_isChangingCamera || _isBursting) return;
     setState(() => _isBursting = true);
-    await LogService.write(" RÁFAGA iniciada.");
+    await LogService.write("📸 RÁFAGA iniciada.");
+
+    List<String> burstPaths = [];
     for (int i = 0; i < 3; i++) {
       try {
         await _initializeControllerFuture;
         final XFile image = await _controller.takePicture();
-        CameraProcessingService.processPhoto(image, _selectedPixels);
+        burstPaths.add(image.path); // Anotamos en la libreta en orden
         await Future.delayed(const Duration(milliseconds: 150));
-      } catch (e) { LogService.write(" Error ráfaga [$i]: $e"); }
+      } catch (e) { LogService.write("❌ Error ráfaga [$i]: $e"); }
     }
+
+    // 🚀 Mandamos las 3 fotos juntas a la cola del Obrero
+    if (burstPaths.isNotEmpty) {
+      await LocalDBService.instance.enqueueImportTasks(burstPaths);
+      ImportWorkerService.instance.startProcessing(_selectedPixels);
+    }
+
     setState(() => _isBursting = false);
   }
 
   Future<void> _takePicture() async {
-    if (_isProcessing || _isChangingCamera || _isBursting) return;
+    // 🚀 Quitamos _isProcessing para que la cámara nunca se bloquee
+    if (_isChangingCamera || _isBursting) return;
     try {
       await _initializeControllerFuture;
       final XFile image = await _controller.takePicture();
-      CameraProcessingService.processPhoto(image, _selectedPixels);
-    } catch (e) { LogService.write(" Error captura: $e"); }
+
+      // 🚀 Mandamos la foto directo a la cola
+      await LocalDBService.instance.enqueueImportTasks([image.path]);
+      ImportWorkerService.instance.startProcessing(_selectedPixels);
+
+    } catch (e) { LogService.write("❌ Error captura: $e"); }
   }
 
   Future<void> _toggleCamera() async {
@@ -225,13 +254,24 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   // MÉTODO AUXILIAR PARA EL STREAM DE LA COLA
+  // MÉTODO AUXILIAR PARA EL STREAM DE LA COLA
   Stream<Map<String, int>> _getQueueStream() async* {
     while (true) {
       final db = await LocalDBService.instance.database;
-      final total = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM import_processing_queue')) ?? 0;
-      final completed = Sqflite.firstIntValue(await db.rawQuery("SELECT COUNT(*) FROM import_processing_queue WHERE status = 'completed'")) ?? 0;
 
-      yield {'total': total, 'completed': completed};
+      final total = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM import_processing_queue')) ?? 0;
+
+      // 🚀 CAMBIO SENIOR: Sumamos los 'completed' y los 'failed'.
+      // Si una foto falla, la contamos como "procesada" para que la cola avance y no se trabe.
+      final processed = Sqflite.firstIntValue(await db.rawQuery("SELECT COUNT(*) FROM import_processing_queue WHERE status = 'completed' OR status = 'failed'")) ?? 0;
+
+      yield {'total': total, 'processed': processed};
+
+      // 🧹 AUTO-LIMPIEZA MÁGICA: Si ya terminó todo el lote, vaciamos la tabla de la DB.
+      // Así evitamos que se acumulen "fantasmas" para la próxima importación.
+      if (total > 0 && total == processed) {
+        await LocalDBService.instance.clearQueue();
+      }
 
       await Future.delayed(const Duration(seconds: 1));
     }
@@ -340,16 +380,17 @@ class _CameraScreenState extends State<CameraScreen> {
           ),
 
           // ✅ NUEVO INDICADOR DE PROGRESO CON STREAMBUILDER
+          // ✅ NUEVO INDICADOR DE PROGRESO CON STREAMBUILDER
           StreamBuilder<Map<String, int>>(
               stream: _getQueueStream(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const SizedBox.shrink();
 
                 final total = snapshot.data!['total'] ?? 0;
-                final completed = snapshot.data!['completed'] ?? 0;
+                final processed = snapshot.data!['processed'] ?? 0; // Usamos processed
 
                 // Si no hay nada en cola, o ya terminó todo, no mostramos nada
-                if (total == 0 || total == completed) return const SizedBox.shrink();
+                if (total == 0 || total == processed) return const SizedBox.shrink();
 
                 return Positioned(
                   top: 100, left: 0, right: 0,
@@ -368,7 +409,7 @@ class _CameraScreenState extends State<CameraScreen> {
                           const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.redAccent, strokeWidth: 2)),
                           const SizedBox(width: 15),
                           Text(
-                            "Cola: $completed / $total fotos",
+                            "Cola: $processed / $total fotos",
                             style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                         ],

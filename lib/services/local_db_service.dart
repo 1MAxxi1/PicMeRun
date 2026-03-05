@@ -202,6 +202,10 @@ class LocalDBService {
     );
   }
 
+  // --- MÉTODOS DE CONSULTA ---
+
+  // --- MÉTODOS DE CONSULTA ---
+
   Future<List<Map<String, dynamic>>> getPendingTorsos() async {
     final db = await instance.database;
     return await db.rawQuery('''
@@ -209,7 +213,9 @@ class LocalDBService {
       FROM torso_processing_queue t
       INNER JOIN photos p ON t.photo_id = p.id
       WHERE t.status = ?
-      ORDER BY t.created_at DESC
+      -- 🚀 Ordenamos por ID descendente. Al usar la cola (FIFO),
+      -- el ID garantiza el orden cronológico exacto de la captura.
+      ORDER BY t.id DESC
     ''', ['pending']);
   }
 
