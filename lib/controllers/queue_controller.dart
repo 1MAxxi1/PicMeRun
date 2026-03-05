@@ -30,7 +30,7 @@ class QueueController extends ChangeNotifier {
     pendingTorsos = List<Map<String, dynamic>>.from(data);
     selectedIds.removeWhere((id) => !pendingTorsos.any((t) => t['photo_id'] == id));
 
-    notifyListeners(); // 🗣️ Le avisa a la pantalla que debe redibujarse
+    notifyListeners(); // Le avisa a la pantalla que debe redibujarse
   }
 
   Future<void> loadAuditLogs() async {
@@ -65,7 +65,7 @@ class QueueController extends ChangeNotifier {
     }
   }
 
-  // 🖱4. LA LÓGICA DE SELECCIÓN (Multi-Select)
+  // LA LÓGICA DE SELECCIÓN (Multi-Select)
   void toggleSelection(int photoId) {
     if (selectedIds.contains(photoId)) {
       selectedIds.remove(photoId);

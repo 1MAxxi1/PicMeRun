@@ -12,7 +12,6 @@ import 'package:picmerun/services/storage_service.dart';
 import 'package:picmerun/services/image_audit_service.dart';
 
 class CameraProcessingService {
-  //  MEJORA 1: Cambiamos a 'fast' para evitar colapsos en importaciones masivas.
   // En fotografía deportiva, la velocidad es clave para que el hardware no sufra.
   static final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
@@ -23,7 +22,6 @@ class CameraProcessingService {
     ),
   );
 
-  //  MEJORA 2: Quitamos el microtask. Ahora la función es una tarea secuencial real.
   static Future<void> processPhoto(XFile image, double selectedPixels) async {
     try {
       final File tempFile = File(image.path);
@@ -54,7 +52,7 @@ class CameraProcessingService {
         }
       }
 
-      // 3. Mandamos al Isolate a dibujar (Trabajo pesado fuera del hilo principal)
+      // 3. Mandamos al Isolate a dibujar
       final resultAudit = await compute(ImageAuditService.isolateAuditPipeline, {
         'rawPath': tempFile.path,
         'cleanSavePath': cleanPath,
@@ -72,7 +70,7 @@ class CameraProcessingService {
         }).toList(),
       });
 
-      // 4. Guardamos en la Base de Datos y escribimos el Log Profesional
+      // Guardamos en la Base de Datos y escribimos el Log Profesional
       if (resultAudit != null) {
         final int photoId = await LocalDBService.instance.insertPhoto({
           'hash_photo': resultAudit['cleanHash'],

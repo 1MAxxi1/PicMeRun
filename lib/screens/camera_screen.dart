@@ -12,6 +12,9 @@ import 'package:picmerun/screens/log_view_screen.dart';
 import 'package:picmerun/services/face_service.dart';
 import 'package:picmerun/services/log_service.dart';
 import 'package:picmerun/services/camera_processing_service.dart';
+import 'package:picmerun/services/local_db_service.dart';
+import 'package:picmerun/services/import_worker_service.dart';
+import 'package:sqflite/sqflite.dart';
 
 class CameraScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -102,95 +105,68 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _importFromGallery() async {
-    if (_isProcessing) return;
     try {
       final ImagePicker picker = ImagePicker();
       final List<XFile> images = await picker.pickMultiImage();
 
       if (images.isNotEmpty) {
-        setState(() {
-          _isProcessing = true;
-          _importProgress = "0 / ${images.length}";
-        });
-        await LogService.write("Importación Galería: ${images.length} fotos.");
+        List<String> paths = images.map((img) => img.path).toList();
 
-        int processedCount = 0;
-        for (var image in images) {
-          await CameraProcessingService.processPhoto(image, _selectedPixels);
-          processedCount++;
-          if (mounted) setState(() => _importProgress = "$processedCount / ${images.length}");
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
+        // 1. Mandamos a guardar a la base de datos
+        await LocalDBService.instance.enqueueImportTasks(paths);
+        await LogService.write("Fotos encoladas para procesamiento: ${images.length}");
+
+        // 2. Le damos tiempo a SQLite para asentar los datos
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // 3. Despertamos al Worker
+        ImportWorkerService.instance.startProcessing(_selectedPixels);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("🚀 PicMeRun: Procesando ${images.length} fotos en la cola."))
+        );
       }
     } catch (e) {
-      await LogService.write("Error Galería: $e");
-    } finally {
-      if (mounted) setState(() { _isProcessing = false; _importProgress = ""; });
+      await LogService.write("Error al encolar: $e");
     }
   }
 
-  //  IMPORTACIÓN MASIVA RE-POTENCIADA
   Future<void> _importMultiplePhotosForTesting() async {
     if (_isProcessing) return;
 
-    setState(() {
-      _isProcessing = true;
-      _importProgress = "Descargando de Nube...";
-    });
-
     try {
-      // Limpiamos caché antes de empezar para liberar RAM
-      await FilePicker.platform.clearTemporaryFiles();
-
+      // 1. Selección de archivos (Directo al grano)
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         type: FileType.custom,
         allowedExtensions: ['jpg', 'jpeg', 'png'],
       );
 
-      if (result == null || result.files.isEmpty) {
-        setState(() { _isProcessing = false; _importProgress = ""; });
-        return;
+      if (result == null || result.files.isEmpty) return;
+
+      // 2. PASAMOS TODO A LA COLA
+      List<String> paths = result.files
+          .where((file) => file.path != null)
+          .map((file) => file.path!)
+          .toList();
+
+      if (paths.isNotEmpty) {
+        // Anotamos en nuestro "Redis" (SQLite)
+        await LocalDBService.instance.enqueueImportTasks(paths);
+        await LogService.write("📂 Drive/Explorador: ${paths.length} fotos encoladas.");
+
+        // 3. FRENO DE SEGURIDAD (Para que SQLite asiente los datos)
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // 4. Activamos al "Obrero" (Worker)
+        ImportWorkerService.instance.startProcessing(_selectedPixels);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("🚀 Procesando ${paths.length} archivos de Drive en segundo plano..."))
+        );
       }
-
-      await LogService.write(" Drive enganchado: ${result.files.length} archivos.");
-
-      int processedCount = 0;
-      for (var file in result.files) {
-        if (file.path != null) {
-          final File checkFile = File(file.path!);
-
-          if (await checkFile.exists()) {
-            final XFile xFile = XFile(file.path!);
-            // Procesamos con el motor de IA
-            await CameraProcessingService.processPhoto(xFile, _selectedPixels);
-            processedCount++;
-
-            if (mounted) {
-              setState(() => _importProgress = "$processedCount / ${result.files.length}");
-            }
-          } else {
-            await LogService.write(" Archivo saltado (No encontrado en caché): ${file.name}");
-          }
-
-          // Respirador dinámico: Un poco más largo para evitar OOM en lotes masivos
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
-      }
-
-      // Limpiamos caché al terminar para que el teléfono no quede pesado
-      await FilePicker.platform.clearTemporaryFiles();
-      await LogService.write(" Importación masiva completada.");
-
     } catch (e) {
-      await LogService.write(" Error crítico importación: $e");
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-          _importProgress = "";
-        });
-      }
+      await LogService.write("❌ Error en selector de archivos: $e");
     }
   }
 
@@ -208,14 +184,14 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _takeBurst() async {
     if (_isProcessing || _isChangingCamera || _isBursting) return;
     setState(() => _isBursting = true);
-    await LogService.write("🔥 RÁFAGA iniciada.");
+    await LogService.write(" RÁFAGA iniciada.");
     for (int i = 0; i < 3; i++) {
       try {
         await _initializeControllerFuture;
         final XFile image = await _controller.takePicture();
         CameraProcessingService.processPhoto(image, _selectedPixels);
         await Future.delayed(const Duration(milliseconds: 150));
-      } catch (e) { LogService.write("❌ Error ráfaga [$i]: $e"); }
+      } catch (e) { LogService.write(" Error ráfaga [$i]: $e"); }
     }
     setState(() => _isBursting = false);
   }
@@ -226,7 +202,7 @@ class _CameraScreenState extends State<CameraScreen> {
       await _initializeControllerFuture;
       final XFile image = await _controller.takePicture();
       CameraProcessingService.processPhoto(image, _selectedPixels);
-    } catch (e) { LogService.write("❌ Error captura: $e"); }
+    } catch (e) { LogService.write(" Error captura: $e"); }
   }
 
   Future<void> _toggleCamera() async {
@@ -248,6 +224,19 @@ class _CameraScreenState extends State<CameraScreen> {
     super.dispose();
   }
 
+  // MÉTODO AUXILIAR PARA EL STREAM DE LA COLA
+  Stream<Map<String, int>> _getQueueStream() async* {
+    while (true) {
+      final db = await LocalDBService.instance.database;
+      final total = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM import_processing_queue')) ?? 0;
+      final completed = Sqflite.firstIntValue(await db.rawQuery("SELECT COUNT(*) FROM import_processing_queue WHERE status = 'completed'")) ?? 0;
+
+      yield {'total': total, 'completed': completed};
+
+      await Future.delayed(const Duration(seconds: 1));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -255,7 +244,7 @@ class _CameraScreenState extends State<CameraScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. VISTA PREVIA CÁMARA
+          // VISTA PREVIA CÁMARA
           _isChangingCamera
               ? const Center(child: CircularProgressIndicator(color: Colors.white))
               : FutureBuilder<void>(
@@ -295,7 +284,7 @@ class _CameraScreenState extends State<CameraScreen> {
             },
           ),
 
-          // 2. INTERFAZ SUPERIOR
+          // INTERFAZ SUPERIOR
           Positioned(
             top: 0, left: 0, right: 0,
             child: SafeArea(
@@ -350,29 +339,60 @@ class _CameraScreenState extends State<CameraScreen> {
             ),
           ),
 
-          // ✅ INDICADOR DE PROGRESO PREMIUM
+          // ✅ NUEVO INDICADOR DE PROGRESO CON STREAMBUILDER
+          StreamBuilder<Map<String, int>>(
+              stream: _getQueueStream(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const SizedBox.shrink();
+
+                final total = snapshot.data!['total'] ?? 0;
+                final completed = snapshot.data!['completed'] ?? 0;
+
+                // Si no hay nada en cola, o ya terminó todo, no mostramos nada
+                if (total == 0 || total == completed) return const SizedBox.shrink();
+
+                return Positioned(
+                  top: 100, left: 0, right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black87,
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(color: Colors.redAccent, width: 2),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10)],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.redAccent, strokeWidth: 2)),
+                          const SizedBox(width: 15),
+                          Text(
+                            "Cola: $completed / $total fotos",
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+          ),
+
+          // INDICADOR DE PROGRESO TRADICIONAL
           if (_isProcessing)
             Positioned(
-              top: 100, left: 0, right: 0,
+              top: 160, left: 0, right: 0,
               child: Center(
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.black87,
+                    color: Colors.blueGrey[900]?.withOpacity(0.8),
                     borderRadius: BorderRadius.circular(30),
-                    border: Border.all(color: Colors.redAccent, width: 2),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10)],
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.redAccent, strokeWidth: 2)),
-                      const SizedBox(width: 15),
-                      Text(
-                        _importProgress.isEmpty ? "Conectando..." : "Procesando: $_importProgress",
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                    ],
+                  child: Text(
+                    "Drive: $_importProgress",
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
                   ),
                 ),
               ),

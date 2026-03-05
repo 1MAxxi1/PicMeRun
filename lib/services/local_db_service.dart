@@ -13,8 +13,7 @@ class LocalDBService {
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    //  Versión 5: Estructura relacional completa para PicMeRun
-    _database = await _initDB('picmerun_relational_final_v5.db');
+    _database = await _initDB('picmerun_relational_final_v7.db');
     return _database!;
   }
 
@@ -24,16 +23,19 @@ class LocalDBService {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 7,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
-      //  Habilita el CASCADE y restricciones de llave foránea
       onConfigure: (db) async => await db.execute('PRAGMA foreign_keys = ON'),
     );
   }
 
+  Future<void> clearQueue() async {
+    final db = await instance.database;
+    await db.delete('import_processing_queue');
+  }
+
   Future<void> _createDB(Database db, int version) async {
-    // 1. EVENTOS
     await db.execute('''
       CREATE TABLE events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +43,6 @@ class LocalDBService {
       )
     ''');
 
-    // 2. FOTÓGRAFOS
     await db.execute('''
       CREATE TABLE photographers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,7 +50,6 @@ class LocalDBService {
       )
     ''');
 
-    // 3. PHOTOS (Tabla Maestra)
     await db.execute('''
       CREATE TABLE photos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +62,6 @@ class LocalDBService {
       )
     ''');
 
-    // 4. FACE_CLUSTERS
     await db.execute('''
       CREATE TABLE face_clusters (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,7 +71,6 @@ class LocalDBService {
       )
     ''');
 
-    // 5. FACES (Relación foto-rostro con Cascada)
     await db.execute('''
       CREATE TABLE faces (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,7 +80,6 @@ class LocalDBService {
       )
     ''');
 
-    // 6. TORSO_PROCESSING_QUEUE (Cola de Envío limpia para Gregorio)
     await db.execute('''
       CREATE TABLE torso_processing_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,7 +89,6 @@ class LocalDBService {
       )
     ''');
 
-    // 7. BIB_NUMBERS (Dorsales detectados)
     await db.execute('''
       CREATE TABLE bib_numbers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,40 +97,85 @@ class LocalDBService {
       )
     ''');
 
-    // Índices de optimización
+    await db.execute('''
+      CREATE TABLE import_processing_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        retry_count INTEGER DEFAULT 0,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+
     await db.execute('CREATE INDEX idx_bib_number ON bib_numbers (bib_number)');
     await db.execute('CREATE INDEX idx_photo_hash ON photos (hash_photo)');
+    await db.execute('CREATE INDEX idx_import_status ON import_processing_queue (status)');
 
-    // Inserción de datos semilla obligatorios
-    await db.insert('events', {
-      'id': 1,
-      'name': 'Maratón Inicial',
-      'city': 'Viña del Mar',
-      'date': DateTime.now().toIso8601String()
-    });
-    await db.insert('photographers', {
-      'id': 1,
-      'name': 'Maxi Analista',
-      'email': 'maxi@inacap.cl'
-    });
+    await db.insert('events', {'id': 1, 'name': 'Maratón Inicial', 'city': 'Viña del Mar', 'date': DateTime.now().toIso8601String()});
+    await db.insert('photographers', {'id': 1, 'name': 'Maxi Analista', 'email': 'maxi@inacap.cl'});
 
-    print("🚀 DB PicMeRun v5: Todas las tablas creadas.");
+    print("🚀 DB PicMeRun v7: Sistema de Colas Senior Integrado.");
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 5) {
-      await db.execute("DROP TABLE IF EXISTS bib_numbers");
-      await db.execute("DROP TABLE IF EXISTS torso_processing_queue");
-      await db.execute("DROP TABLE IF EXISTS faces");
-      await db.execute("DROP TABLE IF EXISTS face_clusters");
-      await db.execute("DROP TABLE IF EXISTS photos");
-      await db.execute("DROP TABLE IF EXISTS photographers");
-      await db.execute("DROP TABLE IF EXISTS events");
-      await _createDB(db, newVersion);
+    if (oldVersion < 7) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS import_processing_queue (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_path TEXT NOT NULL,
+          status TEXT DEFAULT 'pending',
+          retry_count INTEGER DEFAULT 0,
+          error_message TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      ''');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_import_status ON import_processing_queue (status)');
     }
   }
 
-  // --- MÉTODOS DE INSERCIÓN ---
+  // --- NUEVOS MÉTODOS PARA LA COLA DE IMPORTACIÓN (ESTILO CELERY) ---
+
+  Future<void> enqueueImportTasks(List<String> paths) async {
+    final db = await instance.database;
+    final batch = db.batch();
+
+    for (var path in paths) {
+      batch.insert('import_processing_queue', {
+        'file_path': path,
+        'status': 'pending',
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    }
+
+    // El commit asegura los datos en SQLite. Se removió el PRAGMA que causaba el crash.
+    await batch.commit(noResult: true);
+    print("📦 DB: ${paths.length} tareas confirmadas en disco.");
+  }
+
+  Future<Map<String, dynamic>?> getNextImportTask() async {
+    final db = await instance.database;
+    final List<Map<String, dynamic>> results = await db.rawQuery(
+        "SELECT * FROM import_processing_queue WHERE status = 'pending' ORDER BY id ASC LIMIT 1"
+    );
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  Future<int> updateImportStatus(int id, String status, {String? error}) async {
+    final db = await instance.database;
+    return await db.update(
+      'import_processing_queue',
+      {
+        'status': status,
+        'error_message': error,
+        'retry_count': status == 'failed' ? 1 : 0
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // --- MÉTODOS ORIGINALES ---
 
   Future<int> insertPhoto(Map<String, dynamic> row) async {
     final db = await instance.database;
@@ -146,17 +187,9 @@ class LocalDBService {
     return await db.insert('torso_processing_queue', row);
   }
 
-  // --- MÉTODOS DE ACTUALIZACIÓN ---
-
-  //  NUEVO MÉTODO: Actualiza la ruta de la galería sin afectar la cola
   Future<int> updatePhotoPath(int id, String newPath) async {
     final db = await instance.database;
-    return await db.update(
-        'photos',
-        {'file_url': newPath},
-        where: 'id = ?',
-        whereArgs: [id]
-    );
+    return await db.update('photos', {'file_url': newPath}, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<int> updateTorsoStatus(int id, String status) async {
@@ -169,8 +202,6 @@ class LocalDBService {
     );
   }
 
-  // --- MÉTODOS DE CONSULTA ---
-
   Future<List<Map<String, dynamic>>> getPendingTorsos() async {
     final db = await instance.database;
     return await db.rawQuery('''
@@ -182,11 +213,8 @@ class LocalDBService {
     ''', ['pending']);
   }
 
-  // --- MÉTODOS DE ELIMINACIÓN ---
-
   Future<void> deletePhoto(int id) async {
     final db = await instance.database;
-
     final photoResults = await db.query('photos', where: 'id = ?', whereArgs: [id]);
     final torsoResults = await db.query('torso_processing_queue', where: 'photo_id = ?', whereArgs: [id]);
 
