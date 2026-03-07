@@ -31,6 +31,7 @@ dependencies:
   # --- Nube y Conexión (CLOUDFLARE) ---
   http: ^1.2.0
   google_mlkit_pose_detection: ^0.12.1
+  provider: ^6.1.5+1
 
 dev_dependencies:
   flutter_test:

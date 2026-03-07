@@ -1,11 +1,17 @@
 // Propósito: El punto de entrada principal de la app. Enciende los motores,
 // inicializa la base de datos y lanza la interfaz de usuario.
 
-import 'package:picmerun/services/face_service.dart';
-import 'package:picmerun/services/storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:provider/provider.dart';
+
+// Importamos servicios
+import 'package:picmerun/services/face_service.dart';
+import 'package:picmerun/services/storage_service.dart';
+
+// Importamos la pantalla y el provider
 import 'package:picmerun/screens/camera_screen.dart';
+import 'package:picmerun/providers/camera_provider.dart'; // 🚀 Corregido el punto y coma faltante
 
 Future<void> main() async {
   // Asegura que los bindings de Flutter estén listos
@@ -36,38 +42,45 @@ class PicMeRunApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'PicMeRun',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF2563EB),
-          surface: const Color(0xFFF8FAFC),
-        ),
-        useMaterial3: true,
+    // 🚀 AQUÍ INYECTAMOS EL CEREBRO: Envolvemos MaterialApp con MultiProvider
+    // Esto garantiza que el estado global esté disponible en TODA la app.
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => CameraProvider()),
+      ],
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'PicMeRun',
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF2563EB),
+            surface: const Color(0xFFF8FAFC),
+          ),
+          useMaterial3: true,
 
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black87,
-          elevation: 0,
-          centerTitle: true,
-          titleTextStyle: TextStyle(
-            color: Colors.black87,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black87,
+            elevation: 0,
+            centerTitle: true,
+            titleTextStyle: TextStyle(
+              color: Colors.black87,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+
+          cardTheme: const CardThemeData(
+            color: Colors.white,
+            elevation: 2.0,
+            shadowColor: Colors.black12,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(16.0)),
+            ),
           ),
         ),
-
-        cardTheme: const CardThemeData(
-          color: Colors.white,
-          elevation: 2.0,
-          shadowColor: Colors.black12,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(16.0)),
-          ),
-        ),
+        home: CameraScreen(cameras: cameras),
       ),
-      home: CameraScreen(cameras: cameras),
     );
   }
 }

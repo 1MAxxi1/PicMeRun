@@ -7,7 +7,7 @@ import 'package:picmerun/widgets/queue_item_card.dart';
 import 'package:picmerun/theme/app_theme.dart';
 import 'package:picmerun/utils/ui_helpers.dart';
 import 'package:picmerun/controllers/queue_controller.dart';
-import 'package:picmerun/screens/log_view_screen.dart'; // <-- ✅ IMPORTAMOS EL NUEVO PANEL DE LOGS
+import 'package:picmerun/screens/log_view_screen.dart';
 
 class QueueScreen extends StatefulWidget {
   const QueueScreen({super.key});
@@ -25,7 +25,6 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    // ✅ FIX: Le pasamos 'this' como vsync
     _tabController = TabController(length: 2, vsync: this);
     // Escuchamos si cambias de pestaña para actualizar la barra de arriba
     _tabController.addListener(() {
@@ -101,9 +100,6 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
                     onPressed: () => _controller.handleSync(context),
                   ),
                 ),
-
-              // ✅ ELIMINAMOS el botón de borrar logs viejo de aquí,
-              // porque la nueva LogViewScreen ya trae su propio botón de limpiar.
             ],
           ),
           body: TabBarView(
@@ -118,7 +114,7 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
                   ? _buildEmptyState()
                   : _buildQueueList()),
 
-              // ✅ INCRUSTACIÓN: Llamamos al panel profesional en lugar del texto viejo
+              // ✅ INCRUSTACIÓN: Llamamos al panel profesional
               const LogViewScreen(),
             ],
           ),
@@ -129,9 +125,16 @@ class _QueueScreenState extends State<QueueScreen> with SingleTickerProviderStat
 
   Widget _buildQueueList() {
     return ListView.builder(
-      key: ValueKey(_controller.pendingTorsos.hashCode),
+      // 🚀 MEJORA SENIOR: Eliminamos el ValueKey(hashCode) que destruía y
+      // recreaba TODA la lista en cada tap. Ahora Flutter recicla suavemente.
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
       itemCount: _controller.pendingTorsos.length,
+
+      // 🚀 MAGIA ANTI-OOM: Le decimos a la lista que destruya de la RAM
+      // inmediatamente cualquier tarjeta que ya no sea visible en la pantalla.
+      addAutomaticKeepAlives: false,
+      addRepaintBoundaries: true,
+
       itemBuilder: (context, index) {
         final item = _controller.pendingTorsos[index];
 

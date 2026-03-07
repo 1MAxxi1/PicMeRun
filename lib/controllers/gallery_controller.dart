@@ -85,4 +85,104 @@ class GalleryController extends ChangeNotifier {
       return false;
     }
   }
+
+  // 🚀 NUEVA MEJORA SENIOR: Borrado Múltiple (Estilo Google Photos)
+  // Recibe un "Set" (lista sin duplicados) de fotos y las destruye en lote
+  // recargando la UI una sola vez al terminar para ahorrar batería y RAM.
+  Future<bool> deleteMultiplePhotos(Set<File> filesToDelete) async {
+    if (filesToDelete.isEmpty) return false;
+
+    isLoading = true;
+    notifyListeners();
+
+    try {
+      String originalDir = await _storage.getPath(false);
+      String auditDir = await _storage.getPath(true);
+
+      for (var selectedFile in filesToDelete) {
+        final String path = selectedFile.path;
+        final String fileName = path.split('/').last;
+
+        File? originalFile;
+        File? auditFile;
+        String timestamp = "";
+
+        // Encontramos la gemela
+        if (fileName.startsWith("MARCOS_")) {
+          auditFile = selectedFile;
+          timestamp = fileName.replaceFirst("MARCOS_", "");
+          originalFile = File('$originalDir/LIMPIA_$timestamp');
+        } else if (fileName.startsWith("LIMPIA_")) {
+          originalFile = selectedFile;
+          timestamp = fileName.replaceFirst("LIMPIA_", "");
+          auditFile = File('$auditDir/MARCOS_$timestamp');
+        } else {
+          originalFile = selectedFile;
+        }
+
+        // Destrucción física
+        if (originalFile != null && await originalFile.exists()) await originalFile.delete();
+        if (auditFile != null && await auditFile.exists()) await auditFile.delete();
+
+        // Destrucción en BD
+        if (auditFile != null) {
+          await LocalDBService.instance.deletePhotoByPath(auditFile.path);
+        }
+      }
+
+      // 🧹 Recargamos una sola vez al terminar la masacre
+      await loadGalleries();
+      return true;
+    } catch (e) {
+      debugPrint("❌ Error en borrado múltiple: $e");
+      isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // 🚀 NUEVA MEJORA SENIOR: El "Botón Nuclear"
+  // Borra TODAS las fotos de las carpetas y limpia la base de datos de un solo golpe.
+  Future<bool> deleteAllPhotos() async {
+    isLoading = true;
+    notifyListeners(); // Mostramos el loader en pantalla mientras destruimos todo
+
+    try {
+      // 1. Limpiamos la Base de Datos usando la lista de fotos con rostros (MARCOS_)
+      // ya que la base de datos guarda la ruta de las fotos procesadas.
+      for (var file in faceFiles) {
+        await LocalDBService.instance.deletePhotoByPath(file.path);
+      }
+
+      // 2. Arrasamos con las carpetas físicas
+      String originalDir = await _storage.getPath(false);
+      String facesDir = await _storage.getPath(true);
+
+      final origDirObj = Directory(originalDir);
+      if (origDirObj.existsSync()) {
+        for (var file in origDirObj.listSync()) {
+          if (file is File) await file.delete();
+        }
+      }
+
+      final faceDirObj = Directory(facesDir);
+      if (faceDirObj.existsSync()) {
+        for (var file in faceDirObj.listSync()) {
+          if (file is File) await file.delete();
+        }
+      }
+
+      // 3. Vaciamos las listas en memoria RAM
+      originalFiles.clear();
+      faceFiles.clear();
+
+      return true;
+    } catch (e) {
+      debugPrint("❌ Error en borrado masivo: $e");
+      return false;
+    } finally {
+      isLoading = false;
+      notifyListeners(); // Quitamos el loader y mostramos el "Empty State" hermoso que hicimos
+    }
+  }
 }

@@ -1,9 +1,11 @@
 // Propósito: La vitrina de fotos. Una interfaz "tonta" que solo dibuja la cuadrícula
-// de imágenes preguntándole a su controlador qué fotos existen, ahora con vista deslizable.
+// de imágenes preguntándole a su controlador qué fotos existen, ahora con vista deslizable,
+// optimización extrema de memoria RAM y 🚀 Selección Múltiple Avanzada.
 
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:picmerun/controllers/gallery_controller.dart'; // <-- El Nuevo Cerebro
+import 'package:flutter/services.dart'; // 🚀 Para la vibración al seleccionar
+import 'package:picmerun/controllers/gallery_controller.dart';
 
 class InternalGalleryScreen extends StatefulWidget {
   const InternalGalleryScreen({super.key});
@@ -13,13 +15,17 @@ class InternalGalleryScreen extends StatefulWidget {
 }
 
 class _InternalGalleryScreenState extends State<InternalGalleryScreen> {
-  // Instanciamos el Controlador
   final GalleryController _controller = GalleryController();
+
+  // 🚀 NUEVA MEJORA SENIOR: Memoria de fotos seleccionadas
+  final Set<File> _selectedFiles = {};
+
+  // Saber si estamos en modo "Selección" o modo normal
+  bool get _isSelectionMode => _selectedFiles.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
-    // Le pedimos al controlador que busque las fotos al abrir la pantalla
     _controller.loadGalleries();
   }
 
@@ -29,9 +35,118 @@ class _InternalGalleryScreenState extends State<InternalGalleryScreen> {
     super.dispose();
   }
 
+  // --- MÉTODOS DE SELECCIÓN ---
+
+  void _toggleSelection(File file) {
+    setState(() {
+      if (_selectedFiles.contains(file)) {
+        _selectedFiles.remove(file);
+      } else {
+        _selectedFiles.add(file);
+      }
+    });
+    HapticFeedback.lightImpact(); // Micro-UX: Pequeña vibración al tocar
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selectedFiles.clear();
+    });
+  }
+
+  // 🚀 EJECUCIÓN DEL BORRADO MÚLTIPLE
+  Future<void> _confirmDeleteSelected() async {
+    final int count = _selectedFiles.length;
+    final bool? delete = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("¿Eliminar $count fotos?", style: const TextStyle(color: Colors.red)),
+        content: const Text("Se borrarán las fotos originales y sus versiones procesadas. Esta acción no se puede deshacer."),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Cancelar", style: TextStyle(color: Colors.grey))
+          ),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text("Eliminar", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+          ),
+        ],
+      ),
+    );
+
+    if (delete == true) {
+      // Le pasamos el lote al Cerebro
+      final success = await _controller.deleteMultiplePhotos(_selectedFiles);
+
+      if (mounted) {
+        _clearSelection(); // Salimos del modo selección
+        ScaffoldMessenger.of(context).clearSnackBars();
+
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("🚀 $count fotos eliminadas con éxito."),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("❌ Error al eliminar las fotos."),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 3),
+              )
+          );
+        }
+      }
+    }
+  }
+
+  // BOTÓN NUCLEAR (Intacto)
+  Future<void> _confirmDeleteAll() async {
+    final bool? delete = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("¿Eliminar TODAS las fotos?", style: TextStyle(color: Colors.red)),
+        content: const Text("Se borrarán absolutamente todas las fotos (Originales y Caras) del almacenamiento del teléfono y de la base de datos. Esta acción no se puede deshacer."),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Cancelar", style: TextStyle(color: Colors.grey))
+          ),
+          TextButton(
+              style: TextButton.styleFrom(backgroundColor: Colors.red[50]),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text("¡Sí, eliminar TODO!", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+          ),
+        ],
+      ),
+    );
+
+    if (delete == true) {
+      final success = await _controller.deleteAllPhotos();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("🚀 Papelera vaciada. Teléfono limpio."),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  // --- UI ---
+
   @override
   Widget build(BuildContext context) {
-    // ListenableBuilder redibuja la pantalla automáticamente cuando el controlador avisa
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, child) {
@@ -40,14 +155,42 @@ class _InternalGalleryScreenState extends State<InternalGalleryScreen> {
           child: Scaffold(
             backgroundColor: const Color(0xFFF8FAFC),
             appBar: AppBar(
-              title: const Text("Galerías PicMeRun"),
-              bottom: const TabBar(
-                indicatorColor: Colors.red,
-                labelColor: Colors.red,
+              // 🚀 APPBAR CONTEXTUAL: Cambia si estamos seleccionando
+              backgroundColor: _isSelectionMode ? Colors.blueGrey[900] : Colors.white,
+              foregroundColor: _isSelectionMode ? Colors.white : Colors.black87,
+
+              leading: _isSelectionMode
+                  ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _clearSelection, // Botón para cancelar selección
+              )
+                  : null, // Si no hay selección, muestra el botón de "Atrás" normal
+
+              title: Text(
+                _isSelectionMode ? "${_selectedFiles.length} seleccionadas" : "Galerías PicMeRun",
+                style: TextStyle(color: _isSelectionMode ? Colors.white : Colors.black87),
+              ),
+
+              actions: [
+                if (_isSelectionMode)
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.redAccent),
+                    onPressed: _confirmDeleteSelected,
+                  )
+                else if (_controller.originalFiles.isNotEmpty || _controller.faceFiles.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.delete_sweep, color: Colors.red, size: 28),
+                    tooltip: 'Eliminar todas las fotos',
+                    onPressed: _confirmDeleteAll,
+                  ),
+              ],
+              bottom: TabBar(
+                indicatorColor: _isSelectionMode ? Colors.white : Colors.red,
+                labelColor: _isSelectionMode ? Colors.white : Colors.red,
                 unselectedLabelColor: Colors.grey,
-                tabs: [
-                  Tab(icon: Icon(Icons.photo_outlined), text: "PicMeRun-Originales"),
-                  Tab(icon: Icon(Icons.face_retouching_natural), text: "PicMeRun-Caras"),
+                tabs: const [
+                  Tab(icon: Icon(Icons.photo_outlined), text: "Originales"),
+                  Tab(icon: Icon(Icons.face_retouching_natural), text: "Caras"),
                 ],
               ),
             ),
@@ -67,7 +210,18 @@ class _InternalGalleryScreenState extends State<InternalGalleryScreen> {
 
   Widget _buildGrid(List<File> files) {
     if (files.isEmpty) {
-      return const Center(child: Text("Galería vacía", style: TextStyle(fontSize: 16, color: Colors.grey)));
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.photo_library_outlined, size: 80, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text("Aún no hay fotos aquí.", style: TextStyle(fontSize: 18, color: Colors.grey[600], fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text("¡Ve a capturar algunos corredores!", style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+          ],
+        ),
+      );
     }
 
     return GridView.builder(
@@ -80,81 +234,85 @@ class _InternalGalleryScreenState extends State<InternalGalleryScreen> {
       itemCount: files.length,
       itemBuilder: (context, index) {
         final file = files[index];
+        final isSelected = _selectedFiles.contains(file);
+
         return GestureDetector(
-          //  MEJORA: Ahora pasamos TODA la lista y la posición actual (index)
-          onTap: () => _showFullScreen(files, index),
-          child: Hero(
-            tag: file.path,
-            child: Image.file(file, fit: BoxFit.cover),
+          // 🚀 MAGIA UX: Mantener presionado activa la selección
+          onLongPress: () => _toggleSelection(file),
+          onTap: () {
+            if (_isSelectionMode) {
+              _toggleSelection(file); // Si ya estamos seleccionando, un toque normal marca/desmarca
+            } else {
+              _showFullScreen(files, index); // Si no, abre la foto grande
+            }
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Hero(
+                tag: file.path,
+                child: Image.file(
+                  file,
+                  fit: BoxFit.cover,
+                  cacheWidth: 400, // 🛡️ Protección OOM intacta
+                ),
+              ),
+              // 🚀 CAPA VISUAL: Si está seleccionada, la oscurecemos y ponemos el Check
+              if (isSelected)
+                Container(
+                  color: Colors.black54, // Oscurece la foto
+                  child: const Center(
+                    child: Icon(Icons.check_circle, color: Colors.blueAccent, size: 40),
+                  ),
+                ),
+            ],
           ),
         );
       },
     );
   }
 
-  //  MEJORA: Abrimos el nuevo Visor Deslizable delegando la lista y el índice
   void _showFullScreen(List<File> files, int initialIndex) {
     Navigator.push(context, MaterialPageRoute(
       builder: (_) => FullScreenViewer(
         files: files,
         initialIndex: initialIndex,
-        onDelete: (file) => _confirmDelete(file),
+        // Al borrar desde pantalla completa, recargamos la galería si es exitoso
+        onDelete: (file) async {
+          await _confirmDeleteSingle(file);
+        },
       ),
     ));
   }
 
-  Future<void> _confirmDelete(File file) async {
+  // Modificamos ligeramente el borrado individual para que funcione perfecto con la pantalla completa
+  Future<void> _confirmDeleteSingle(File file) async {
     final bool? delete = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("¿Eliminar de forma permanente?"),
-        content: const Text("Se borrará la foto original, su versión de auditoría y el registro en la base de datos."),
+        content: const Text("Se borrará la foto original y su versión de auditoría."),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancelar")
-          ),
-          TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text("Eliminar", style: TextStyle(color: Colors.red))
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancelar")),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Eliminar", style: TextStyle(color: Colors.red))),
         ],
       ),
     );
 
     if (delete == true) {
-      // La vista solo le avisa al cerebro que haga el trabajo sucio
       final success = await _controller.deletePhotoPair(file);
-
       if (mounted) {
-        Navigator.pop(context); // Cierra la pantalla completa y vuelve a la galería
-
-        //  FIX UX: Limpiamos la cola de mensajes viejos
+        Navigator.pop(context); // Cierra la pantalla completa
         ScaffoldMessenger.of(context).clearSnackBars();
-
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(" Limpieza completa"),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 1),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("Error al eliminar"),
-                backgroundColor: Colors.red,
-                duration: Duration(seconds: 2),
-              )
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Limpieza completa"), backgroundColor: Colors.green, duration: Duration(seconds: 1)));
         }
       }
     }
   }
 }
 
-//  NUEVO WIDGET: Visor de Pantalla Completa Deslizable (PageView)
+// NUEVO WIDGET: Visor de Pantalla Completa Deslizable (PageView)
 // =========================================================================
 class FullScreenViewer extends StatefulWidget {
   final List<File> files;
@@ -180,7 +338,6 @@ class _FullScreenViewerState extends State<FullScreenViewer> {
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
-    // El PageController se encarga de iniciar en la foto que el usuario tocó
     _pageController = PageController(initialPage: widget.initialIndex);
   }
 
@@ -197,7 +354,6 @@ class _FullScreenViewerState extends State<FullScreenViewer> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
-        // Muestra un contador dinámico arriba, ej: "3 / 20"
         title: Text(
           "${_currentIndex + 1} / ${widget.files.length}",
           style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -209,12 +365,10 @@ class _FullScreenViewerState extends State<FullScreenViewer> {
           ),
         ],
       ),
-      // 🪄 MAGIA: PageView.builder permite deslizar a la izquierda/derecha suavemente
       body: PageView.builder(
         controller: _pageController,
         itemCount: widget.files.length,
         onPageChanged: (index) {
-          // Actualizamos el estado para que el título (contador) cambie
           setState(() {
             _currentIndex = index;
           });
@@ -225,7 +379,6 @@ class _FullScreenViewerState extends State<FullScreenViewer> {
             child: Hero(
               tag: file.path,
               child: InteractiveViewer(
-                // InteractiveViewer permite al usuario hacer pinch-to-zoom en la foto
                 child: Image.file(file),
               ),
             ),
