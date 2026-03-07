@@ -1,6 +1,6 @@
 // Propósito: La vista inmersiva de la cámara con sistema de importación masiva
 // optimizado para estabilidad, Clean Code y feedback visual constante.
-// 🚀 INCLUYE: Gestión de Ciclo de Vida (Ahorro de batería y prevención de pantalla negra).
+//nuevo
 
 import 'dart:io';
 import 'package:camera/camera.dart';
