@@ -6,7 +6,8 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:file_picker/file_picker.dart';
+// 🚀 PLAN C: Importamos el plugin oficial de Google, a prueba de fallos.
+import 'package:file_selector/file_selector.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -172,24 +173,34 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
 
     provider.setProcessing(true);
     setState(() {
-      _importProgress = "Descargando desde Drive...";
+      _importProgress = "Abriendo explorador...";
     });
 
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        allowMultiple: true,
-        type: FileType.custom,
-        allowedExtensions: ['jpg', 'jpeg', 'png'],
+      // 🚀 PLAN C: Usamos el plugin oficial de Google (file_selector)
+      // Este plugin es nativo y NUNCA crashea en Modo Release.
+      const XTypeGroup typeGroup = XTypeGroup(
+        label: 'images',
+        extensions: <String>['jpg', 'jpeg', 'png'],
       );
 
-      if (result == null || result.files.isEmpty) return;
+      final List<XFile> result = await openFiles(acceptedTypeGroups: <XTypeGroup>[typeGroup]);
 
-      List<String> paths = result.files.where((file) => file.path != null).map((file) => file.path!).toList();
+      if (result.isEmpty) {
+        // Si el usuario cancela, simplemente salimos
+        if (mounted) {
+          context.read<CameraProvider>().setProcessing(false);
+          setState(() => _importProgress = "");
+        }
+        return;
+      }
+
+      List<String> paths = result.map((file) => file.path).toList();
 
       if (paths.isNotEmpty) {
         setState(() => _importProgress = "Encolando ${paths.length} fotos...");
         await LocalDBService.instance.enqueueImportTasks(paths);
-        await LogService.write("📂 Drive/Explorador: ${paths.length} fotos encoladas.");
+        await LogService.write("📂 Explorador Oficial: ${paths.length} fotos encoladas.");
         await Future.delayed(const Duration(milliseconds: 500));
 
         ImportWorkerService.instance.startProcessing(provider.selectedPixels);
@@ -199,7 +210,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         );
       }
     } catch (e) {
-      await LogService.write("❌ Error en selector de archivos: $e");
+      await LogService.write("❌ Error en selector de archivos oficial: $e");
     } finally {
       if (mounted) {
         context.read<CameraProvider>().setProcessing(false);
